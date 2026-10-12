@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monster Eye Settings</title>
+<style>
+  :root {
+    --bg: #0c0710; --panel: #16101c; --panel2: #1f1627; --line: #2e2338;
+    --text: #efe6f7; --muted: #a797b6; --orange: #ff7a1a; --green: #9cff3a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header {
+    position: sticky; top: 0; z-index: 5; background: rgba(12,7,16,.92); backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: .5px; color: var(--orange); }
+  #status { font-size: 13px; color: var(--muted); margin-left: auto; }
+  #status.ok { color: var(--green); }
+  #status.warn { color: #ffcc55; }
+  .btn, button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 12px; font: inherit; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  button:hover, .btn:hover { border-color: var(--orange); }
+  .btn.primary { background: var(--orange); color: #1a0a00; border-color: var(--orange); font-weight: 600; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; padding: 16px; max-width: 1300px; margin: 0 auto; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .preview-col { order: -1; } }
+  .preview-col { position: sticky; top: 64px; align-self: start; }
+  @media (max-width: 900px) { .preview-col { position: static; } }
+  .preview { width: 100%; aspect-ratio: 16/10; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: #000; }
+  .preview canvas { width: 100%; height: 100%; display: block; }
+  .now { margin: 8px 2px 0; color: var(--muted); font-size: 13px; }
+  .now b { color: var(--text); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .row .meta { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+  .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; transition: opacity .2s, border-color .2s; }
+  .card.off { opacity: .45; }
+  .card.playing { border-color: var(--orange); }
+  .card label.title { display: flex; gap: 8px; align-items: center; font-weight: 600; cursor: pointer; }
+  .card p { margin: 0; font-size: 12.5px; color: var(--muted); flex: 1; }
+  .card .foot { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .card .foot input { width: 62px; }
+  .card .foot button { margin-left: auto; padding: 4px 10px; font-size: 13px; }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--orange); }
+  input[type=number], select { background: #0f0a14; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; font: inherit; }
+  .field { display: grid; grid-template-columns: 150px 1fr 56px; gap: 10px; align-items: center; margin: 10px 0; }
+  @media (max-width: 520px) { .field { grid-template-columns: 1fr 56px; } .field > span:first-child { grid-column: 1 / -1; } }
+  .field output { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--orange); }
+  input.hue { -webkit-appearance: none; appearance: none; height: 14px; border-radius: 7px;
+    background: linear-gradient(90deg, hsl(0,90%,50%), hsl(60,90%,50%), hsl(120,90%,50%), hsl(180,90%,50%), hsl(240,90%,50%), hsl(300,90%,50%), hsl(360,90%,50%)); }
+  input.hue::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid #000; }
+  input.hue::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid #000; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 6px; }
+  .swatches button { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 5px 10px; }
+  .swatches i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+  .types { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .group-title { grid-column: 1 / -1; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+  .type { text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; }
+  .type b { display: flex; align-items: center; gap: 8px; }
+  .type span { color: var(--muted); font-size: 12.5px; }
+  .type i { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 2px solid #0008; }
+  .type.sel { border-color: var(--orange); box-shadow: 0 0 0 1px var(--orange) inset; background: #2a1a20; }
+  #rotateRow { display: none; margin-top: 12px; align-items: center; gap: 8px; }
+  #rotateRow.show { display: flex; }
+  #rotateRow input { width: 64px; }
+  .check { display: flex; gap: 10px; align-items: center; margin: 10px 0; cursor: pointer; }
+  footer { display: flex; gap: 10px; justify-content: space-between; flex-wrap: wrap; padding: 0 0 30px; }
+  kbd { background: #0f0a14; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MONSTER EYE</h1>
+  <a class="btn primary" href="index.html">Open the eye</a>
+  <span id="status">Loading…</span>
+</header>
+
+<div class="layout">
+  <div>
+    <section>
+      <h2>Eye type</h2>
+      <p class="hint">Which creature the eye belongs to. Every animation works with every type. Picking a type also sets its natural colors below, which you can then adjust.</p>
+      <div class="types" id="types"></div>
+      <div id="rotateRow">Switch to a different eye every <input type="number" min="1" max="50" data-key="rotateEvery"> animations (during a blink).</div>
+    </section>
+
+    <section>
+      <h2>Animation loop</h2>
+      <p class="hint">Check the animations you want in the loop and set how long each one runs. <b>Play</b> shows it right away, both here and on the eye.</p>
+      <div class="row">
+        <button id="all">Select all</button>
+        <button id="none">Select none</button>
+        <span class="meta" id="summary"></span>
+      </div>
+      <div class="grid" id="list"></div>
+    </section>
+
+    <section>
+      <h2>Playback</h2>
+      <div class="field">
+        <span>Order</span>
+        <select data-key="order">
+          <option value="shuffle">Shuffle (random, no repeats)</option>
+          <option value="sequence">In order (top to bottom)</option>
+        </select>
+        <span></span>
+      </div>
+      <label class="check"><input type="checkbox" data-key="blinkTransition"> Blink between animations</label>
+      <label class="check"><input type="checkbox" data-key="showHints"> Show keyboard hints on the eye screen at startup</label>
+    </section>
+
+    <section>
+      <h2>Look</h2>
+      <p class="hint" id="rotateNote" style="display:none">Rotate mode is on, so each eye type uses its own natural colors and these sliders are ignored.</p>
+      <div class="field"><span>Iris color</span><input type="range" class="hue" min="0" max="359" step="1" data-key="irisHue"><output data-for="irisHue"></output></div>
+      <div class="swatches" id="presets"></div>
+      <div class="field"><span>Iris saturation</span><input type="range" min="0" max="100" step="1" data-key="irisSat"><output data-for="irisSat"></output></div>
+      <div class="field"><span>Skin tint</span><input type="range" class="hue" min="0" max="359" step="1" data-key="skinHue"><output data-for="skinHue"></output></div>
+      <div class="field"><span>Eye size</span><input type="range" min="0.5" max="1.5" step="0.05" data-key="eyeSize"><output data-for="eyeSize"></output></div>
+      <div class="field"><span>Resting veins</span><input type="range" min="0" max="1" step="0.05" data-key="veins"><output data-for="veins"></output></div>
+      <label class="check"><input type="checkbox" data-key="lashes"> Spiky eyelashes</label>
+    </section>
+
+    <section>
+      <h2>Performance</h2>
+      <p class="hint">If the eye stutters on slower hardware (like an older Raspberry Pi), lower the render resolution first, then the frame rate.</p>
+      <div class="field"><span>Render resolution</span><input type="range" min="0.4" max="1" step="0.05" data-key="renderScale"><output data-for="renderScale"></output></div>
+      <div class="field"><span>Max frame rate</span><input type="range" min="15" max="60" step="5" data-key="fpsCap"><output data-for="fpsCap"></output></div>
+    </section>
+
+    <footer>
+      <span class="hint">On the eye screen: <kbd>C</kbd> settings · <kbd>N</kbd> next · <kbd>T</kbd> try next eye type · <kbd>Space</kbd> hold · <kbd>1</kbd>–<kbd>9</kbd> jump · <kbd>F</kbd> fullscreen</span>
+      <button id="reset">Reset to defaults</button>
+    </footer>
+  </div>
+
+  <div class="preview-col">
+    <div class="preview"><canvas id="preview"></canvas></div>
+    <p class="now">Live preview: <b id="nowType">–</b> · <b id="nowName">–</b></p>
+  </div>
+</div>
+
+<script src="monster-eye.js"></script>
+<script>
+(function () {
+  const { ANIMS, EYE_TYPES, DEFAULT_CONFIG, mergeConfig, Store, start } = window.MonsterEye;
+  const $ = s => document.querySelector(s);
+  const statusEl = $('#status');
+  let cfg = mergeConfig(null);
+  let serverOK = false;
+
+  const eye = start($('#preview'));
+  eye.onChange((a, t) => {
+    $('#nowName').textContent = a.name;
+    if (t) $('#nowType').textContent = t.name;
+    document.querySelectorAll('.card').forEach(c => c.classList.toggle('playing', c.dataset.id === a.id));
+  });
+
+  const PRESETS = [
+    ['Toxic green', 95], ['Blood red', 0], ['Hellfire orange', 24], ['Pumpkin gold', 42],
+    ['Ice blue', 200], ['Witch purple', 280], ['Ghoul teal', 170], ['Demon pink', 325]
+  ];
+  const presetsEl = $('#presets');
+  PRESETS.forEach(([name, h]) => {
+    const b = document.createElement('button');
+    b.innerHTML = `<i style="background:hsl(${h},90%,50%)"></i>${name}`;
+    b.onclick = () => { cfg.irisHue = h; syncInputs(); changed(); };
+    presetsEl.appendChild(b);
+  });
+
+  // ---- eye type picker ----
+  const typesEl = $('#types');
+  function renderTypes() {
+    typesEl.innerHTML = '';
+    const dot = t => `hsl(${t.irisHue},${t.irisSat}%,50%)`, rainbow = 'conic-gradient(#9cff3a,#ff7a1a,#e33,#48f,#9cff3a)';
+    const groups = [
+      ['Realistic', EYE_TYPES.filter(t => t.group === 'realistic').map(t => ({ id: t.id, name: t.name, desc: t.desc, dot: dot(t) }))],
+      ['Stylized', EYE_TYPES.filter(t => t.group !== 'realistic').map(t => ({ id: t.id, name: t.name, desc: t.desc, dot: dot(t) }))],
+      ['Rotate', [
+        { id: 'rotate', name: 'Rotate through all', desc: 'Switches to a different creature every few animations.', dot: rainbow },
+        { id: 'rotate-realistic', name: 'Rotate realistic', desc: 'Cycles only the realistic eyes.', dot: 'conic-gradient(#c8a060,#4a7fb0,#8a6a4a,#c8a060)' },
+        { id: 'rotate-stylized', name: 'Rotate stylized', desc: 'Cycles only the stylized monsters.', dot: rainbow }
+      ]]
+    ];
+    groups.forEach(([title, opts]) => {
+      const hdr = document.createElement('div');
+      hdr.className = 'group-title'; hdr.textContent = title;
+      typesEl.appendChild(hdr);
+      opts.forEach(o => addType(o));
+    });
+    function addType(o) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'type' + (cfg.eyeType === o.id ? ' sel' : '');
+      b.innerHTML = `<b><i style="background:${o.dot}"></i>${o.name}</b><span>${o.desc}</span>`;
+      b.onclick = () => {
+        cfg.eyeType = o.id;
+        const t = EYE_TYPES.find(x => x.id === o.id);
+        if (t) { cfg.irisHue = t.irisHue; cfg.irisSat = t.irisSat; cfg.skinHue = t.skinHue; }
+        syncInputs(); renderTypes(); changed(true);
+      };
+      typesEl.appendChild(b);
+    }
+    const rot = String(cfg.eyeType).startsWith('rotate');
+    $('#rotateRow').classList.toggle('show', rot);
+    $('#rotateNote').style.display = rot ? '' : 'none';
+  }
+
+  // ---- animation cards ----
+  const list = $('#list');
+  function renderList() {
+    list.innerHTML = '';
+    ANIMS.forEach((a, i) => {
+      const on = cfg.enabled[a.id] !== false;
+      const card = document.createElement('div');
+      card.className = 'card' + (on ? '' : ' off');
+      card.dataset.id = a.id;
+      card.innerHTML = `
+        <label class="title"><input type="checkbox" ${on ? 'checked' : ''}> ${i < 9 ? `<kbd>${i + 1}</kbd>` : ''} ${a.name}</label>
+        <p>${a.desc}</p>
+        <div class="foot">
+          <input type="number" min="2" max="600" step="1" value="${cfg.durations[a.id] || a.dur}"> sec
+          <button type="button">Play</button>
+        </div>`;
+      const [chk, num] = card.querySelectorAll('input');
+      chk.onchange = () => {
+        if (chk.checked) delete cfg.enabled[a.id]; else cfg.enabled[a.id] = false;
+        card.classList.toggle('off', !chk.checked);
+        changed();
+      };
+      num.onchange = () => {
+        const v = Math.max(2, Math.min(600, Math.round(+num.value || a.dur)));
+        num.value = v;
+        if (v === a.dur) delete cfg.durations[a.id]; else cfg.durations[a.id] = v;
+        changed();
+      };
+      card.querySelector('button').onclick = () => {
+        cfg.previewId = a.id;
+        cfg.previewNonce = Date.now();
+        changed(true);
+      };
+      list.appendChild(card);
+    });
+    const cur = eye.current();
+    if (cur) document.querySelectorAll('.card').forEach(c => c.classList.toggle('playing', c.dataset.id === cur.id));
+  }
+  function summary() {
+    const on = ANIMS.filter(a => cfg.enabled[a.id] !== false);
+    const secs = on.reduce((s, a) => s + (+cfg.durations[a.id] || a.dur), 0);
+    $('#summary').textContent = on.length
+      ? `${on.length} of ${ANIMS.length} selected · loop ≈ ${Math.floor(secs / 60)}m ${secs % 60}s`
+      : 'None selected: the eye will just lurk';
+  }
+  $('#all').onclick = () => { cfg.enabled = {}; renderList(); changed(); };
+  $('#none').onclick = () => { ANIMS.forEach(a => cfg.enabled[a.id] = false); renderList(); changed(); };
+
+  // ---- generic inputs ----
+  const fmt = {
+    irisHue: v => v + '°', skinHue: v => v + '°', irisSat: v => v + '%',
+    eyeSize: v => (+v).toFixed(2) + '×', veins: v => Math.round(v * 100) + '%',
+    renderScale: v => Math.round(v * 100) + '%', fpsCap: v => v
+  };
+  const inputs = document.querySelectorAll('[data-key]');
+  function syncInputs() {
+    inputs.forEach(el => {
+      const k = el.dataset.key;
+      if (el.type === 'checkbox') el.checked = !!cfg[k]; else el.value = cfg[k];
+    });
+    document.querySelectorAll('output[data-for]').forEach(o => {
+      const k = o.dataset.for; o.textContent = fmt[k] ? fmt[k](cfg[k]) : cfg[k];
+    });
+  }
+  inputs.forEach(el => {
+    const handler = () => {
+      const k = el.dataset.key;
+      if (el.type === 'checkbox') cfg[k] = el.checked;
+      else if (el.type === 'range' || el.type === 'number') cfg[k] = +el.value;
+      else cfg[k] = el.value;
+      const o = document.querySelector(`output[data-for="${k}"]`);
+      if (o) o.textContent = fmt[k] ? fmt[k](cfg[k]) : cfg[k];
+      changed();
+    };
+    el.addEventListener(el.type === 'range' ? 'input' : 'change', handler);
+  });
+
+  $('#reset').onclick = () => {
+    if (!confirm('Reset every setting to the defaults?')) return;
+    cfg = mergeConfig(null);
+    syncInputs(); renderList(); renderTypes(); changed(true);
+  };
+
+  // ---- saving ----
+  let saveTimer = 0;
+  function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ''; }
+  function changed(immediate) {
+    summary();
+    eye.setConfig(cfg);
+    clearTimeout(saveTimer);
+    setStatus('Saving…');
+    saveTimer = setTimeout(save, immediate ? 0 : 350);
+  }
+  async function save() {
+    Store.saveLocal(cfg);
+    serverOK = await Store.saveServer(cfg);
+    if (serverOK) setStatus('Saved · the eye updates within 2 seconds', 'ok');
+    else if (Store.hasServer) setStatus('Saved in this browser only (eye server not reachable)', 'warn');
+    else setStatus('Saved in this browser only (open via server.py to control the eye from your phone)', 'warn');
+  }
+
+  Store.load().then(({ cfg: c, source }) => {
+    cfg = c;
+    syncInputs(); renderList(); renderTypes(); summary();
+    eye.setConfig(cfg, true);
+    setStatus(source === 'server' ? 'Connected to the eye' : (Store.hasServer ? 'Connected to the eye (no saved settings yet)' : 'Local mode'), source === 'server' || Store.hasServer ? 'ok' : 'warn');
+  });
+})();
+</script>
+</body>
+</html>

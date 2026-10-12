@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Monster Eye</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body.hide-cursor, body.hide-cursor * { cursor: none !important; }
+  #eye { display: block; width: 100vw; height: 100vh; image-rendering: auto; }
+  #toast {
+    position: fixed; left: 50%; bottom: 4vh; transform: translateX(-50%);
+    background: rgba(10, 4, 12, .85); color: #f3e9ff; border: 1px solid #ff7a1a55;
+    font: 500 clamp(13px, 1.6vw, 20px)/1.4 system-ui, sans-serif; padding: .7em 1.2em;
+    border-radius: 12px; opacity: 0; transition: opacity .5s; pointer-events: none;
+    text-align: center; max-width: 90vw;
+  }
+  #toast.show { opacity: 1; }
+  #toast b { color: #ff9a3d; }
+</style>
+</head>
+<body class="hide-cursor">
+<canvas id="eye"></canvas>
+<div id="toast"></div>
+<script src="monster-eye.js"></script>
+<script>
+(function () {
+  const { Store, start, mergeConfig } = window.MonsterEye;
+  const eye = start(document.getElementById('eye'));
+  const toastEl = document.getElementById('toast');
+  let toastTimer = 0, lastJSON = '', showHints = true;
+
+  function toast(html, ms) {
+    toastEl.innerHTML = html;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms || 2500);
+  }
+
+  function apply(cfg, initial) {
+    const json = JSON.stringify(cfg);
+    if (!initial && json === lastJSON) return;
+    lastJSON = json;
+    showHints = cfg.showHints !== false;
+    eye.setConfig(cfg, initial);
+  }
+
+  // Boot: load config, then keep it in sync.
+  Store.load().then(async ({ cfg }) => {
+    apply(cfg, true);
+    if (!showHints) return;
+    let msg = 'Press <b>C</b> for settings &nbsp;·&nbsp; <b>N</b> next &nbsp;·&nbsp; <b>T</b> eye type &nbsp;·&nbsp; <b>Space</b> hold current &nbsp;·&nbsp; <b>F</b> fullscreen';
+    if (Store.hasServer) {
+      try {
+        const info = await (await fetch('api/info', { cache: 'no-store' })).json();
+        if (info.urls && info.urls.length) msg += '<br>Configure from your phone: <b>' + info.urls[0] + '/config.html</b>';
+      } catch (e) { /* static hosting, no info */ }
+    }
+    toast(msg, 9000);
+  });
+
+  if (Store.hasServer) {
+    setInterval(async () => {
+      const s = await Store.fetchServer();
+      if (s) apply(mergeConfig(s));
+    }, 2000);
+  }
+  // file:// mode: settings page in another tab writes localStorage
+  window.addEventListener('storage', () => apply(mergeConfig(Store.local())));
+
+  let manual = false;
+  eye.onChange(anim => { if (showHints && manual) toast('<b>' + anim.name + '</b>', 1800); manual = false; });
+
+  document.addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if (k === 'c') location.href = 'config.html';
+    else if (k === 'n' || e.key === 'ArrowRight') { manual = true; eye.next(); }
+    else if (k === ' ') {
+      e.preventDefault();
+      const p = eye.togglePause();
+      toast(p ? 'Holding <b>' + eye.current().name + '</b> (Space to resume loop)' : 'Loop resumed', 2200);
+    }
+    else if (k === 't') { const t = eye.nextType(); toast('Eye type: <b>' + t.name + '</b> (until the next settings change)', 2200); }
+    else if (k === 'f') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen();
+    }
+    else if (/^[1-9]$/.test(k)) { manual = true; const a = window.MonsterEye.ANIMS[+k - 1]; if (a) eye.play(a.id); }
+  });
+
+  // Show the cursor briefly when the mouse moves, hide it otherwise.
+  let curTimer = 0;
+  document.addEventListener('mousemove', () => {
+    document.body.classList.remove('hide-cursor');
+    clearTimeout(curTimer);
+    curTimer = setTimeout(() => document.body.classList.add('hide-cursor'), 2000);
+  });
+  document.addEventListener('dblclick', () => location.href = 'config.html');
+})();
+</script>
+</body>
+</html>
