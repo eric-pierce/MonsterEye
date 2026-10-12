@@ -1,6 +1,6 @@
 # Monster Eye
 
-A giant animated eye for a Halloween window display. It has 11 eye types (5 realistic, 6 stylized) and 17 animations.
+A giant animated eye for a Halloween window display. It has 17 eye types (8 realistic, 9 stylized) and 29 animations.
 A settings page, on the display computer or your phone, lets you choose the eye and which animations play in the loop.
 
 It runs on any Unix-like system with a desktop: **Raspberry Pi OS, Ubuntu/Debian, Fedora, Arch and other Linux distros, macOS, and FreeBSD/OpenBSD**.
@@ -100,6 +100,9 @@ Changes save automatically, and the eye picks them up within about 2 seconds.
 | Wolf | Amber eye with a black lid margin, set in grey fur with a dark facial mask |
 | Goat | Pale gold iris with a horizontal bar pupil in short tan fur |
 | Octopus | Bar pupil and golden-bronze iris in wet, mottled, pigment-speckled skin |
+| Black Cat | Green-gold iris with a vertical slit pupil in sleek black fur |
+| Vampire | Porcelain skin, shadowed socket, dark lashes, glowing blood-red iris |
+| Creepy Clown | Cracked white greasepaint, a blue diamond painted through the eye, sickly yellow iris |
 
 **Stylized**
 
@@ -110,6 +113,10 @@ Changes save automatically, and the eye picks them up within about 2 seconds.
 | Demon | Black sclera, burning ember iris, charred skin with glowing lava cracks |
 | Zombie | Milky clouded eye, yellowed bloodshot white, rotting stitched flesh |
 | Cyborg | Camera-aperture pupil, spinning LED ring, riveted steel face |
+| Mummy | Dry amber eye glaring through a gap in dusty, fraying linen wrappings |
+| Jack-o'-Lantern | An eye carved into a pumpkin, lit from inside by a flickering candle |
+| Giant Spider | A cluster of glossy black-red eyes in bristling hair; the big one looks around |
+| Alien | Huge dark eye in smooth grey skin with a slowly turning galaxy for an iris |
 
 Picking a type sets its natural colors, which you can then adjust (a brown or green iris on the human eye works well).
 Every animation works with every type.
@@ -118,21 +125,27 @@ Every animation works with every type.
 
 Lurking Gaze · Watching You · Blink Frenzy · Pupil Pulse · Crazy Spin · Serpent Shift ·
 Bloodshot Rage · Hypnotic Spiral · Color Chaos · Nervous Twitch · Sleepy... BOO! (jump scare) ·
-Glitch Possession · Pupil Swarm · Heartbeat · Possessed Roll-Back · Lightning Storm · Blood Tears
+Glitch Possession · Pupil Swarm · Heartbeat · Possessed Roll-Back · Lightning Storm · Blood Tears ·
+Fly Chase · Spider Drop · Let Me Out (cracks the window) · Jack-o'-Lantern · Death's Reflection · Third Eyelid ·
+Target Lock · Monster Mash · Blood Moon Eclipse · Bad Dream · Unimpressed (eye-roll) · Peekaboo
 
-For the most convincing realistic eyes, turn off the obviously supernatural animations (Color Chaos, Hypnotic Spiral, Pupil Swarm, Glitch) and keep the natural ones:
-Lurking Gaze, Watching You, Pupil Pulse, Nervous Twitch, Sleepy... BOO! and Blood Tears.
+For the most convincing realistic eyes, turn off the obviously supernatural animations (Color Chaos, Hypnotic Spiral, Pupil Swarm, Glitch,
+Jack-o'-Lantern, Death's Reflection, Target Lock, Monster Mash) and keep the natural ones:
+Lurking Gaze, Watching You, Pupil Pulse, Nervous Twitch, Sleepy... BOO!, Blood Tears, Fly Chase, Spider Drop, Bad Dream, Unimpressed and Peekaboo.
+
+Good crowd-pleasers for trick-or-treaters: Fly Chase, Spider Drop, Peekaboo, Monster Mash and Let Me Out.
 
 ## Window display tips
 
 - Turn the monitor's brightness all the way up. For an eerier look, tape thin white fabric or frosted window film over the glass so the screen edges disappear.
 - Black out the rest of the window around the monitor with black paper or foam board.
 - A Raspberry Pi 4/5 or any laptop from the last decade runs everything smoothly at 1080p. A Pi 3 is fine at about 60% render resolution.
-- The first time each eye type appears, its skin is generated in a fraction of a second while the eye is blinking. After that it's cached.
+- The first time each eye type appears, its skin is generated in a fraction of a second while the eye is blinking. The ten most recent skins stay cached, so memory use stays flat however many types you rotate through.
 
 ## Adding your own animation or eye type
 
 Every animation is one object in the `ANIMS` list in `monster-eye.js`, and every eye type is one entry in `EYE_TYPES`.
 Each frame, an animation's `fn(a)` sets targets such as
 `a.tgt.lookX`, `a.tgt.pupil`, `a.tgt.lid`, `a.tgt.blood`, `a.tgt.hue`, `a.tgt.shake`, `a.tgt.slit`, `a.tgt.spiral`.
-The engine eases smoothly toward those targets. Copy an existing entry to start, and it appears on the settings page automatically.
+The engine eases smoothly toward those targets. Props are just as short: `a.ctl.critter = { kind: 'fly', x, y }` puts a fly (or `'spider'`) in front of the eye,
+`a.crack(x, y, size)` cracks the glass, and `a.ctl.glyph = 'pumpkin'` with `a.tgt.glyph = 1` lights a face in the pupil. Copy an existing entry to start, and it appears on the settings page automatically.

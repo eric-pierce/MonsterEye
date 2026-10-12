@@ -97,7 +97,9 @@
   // Each animation gets `a` every frame:
   //   a.t (seconds into this act), a.p (0..1 progress), a.dt, a.tgt (target
   //   eye parameters to modify), a.ctl (behaviour switches), a.st (per-act
-  //   scratch state), a.blink(dur), a.flash(alpha, 'r,g,b', decay), a.fx, a.base
+  //   scratch state), a.blink(dur), a.flash(alpha, 'r,g,b', decay), a.fx, a.base,
+  //   a.crack(x, y, size) (cracks the "glass"; a.crack() spreads it), a.view (half screen size, in eye widths)
+  //   Props are positioned in eye widths from the centre: ctl.critter = { kind, x, y }.
   const ANIMS = [
     {
       id: 'lurk', name: 'Lurking Gaze', dur: 12,
@@ -326,6 +328,244 @@
           st.next = a.t + rand(0.5, 1.5);
         }
       }
+    },
+    {
+      id: 'fly', name: 'Fly Chase', dur: 12,
+      desc: 'A fat fly buzzes around the window. The eye chases it, goes cross when it lands, then blinks it away.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        const mx = Math.min(1.25, a.view.hw * 0.85), my = Math.min(0.62, a.view.hh * 0.8);
+        if (st.x == null) {
+          st.side = Math.random() < 0.5 ? -1 : 1;
+          st.x = st.side * (a.view.hw + 0.3); st.y = rand(-my, my * 0.3);
+          st.vx = st.vy = st.ang = st.nw = 0; st.lx = rand(-0.22, 0.22); st.ly = rand(-0.1, 0.1);
+        }
+        const land = a.p > 0.56 && a.p < 0.76, gone = a.p >= 0.76;
+        if (gone) { st.wx = -st.side * (a.view.hw + 1.5); st.wy = -a.view.hh; }
+        else if (land) { st.wx = st.lx; st.wy = st.ly; }
+        else if (!(a.t < st.nw)) { st.wx = rand(-mx, mx); st.wy = rand(-my, my); st.nw = a.t + rand(0.35, 1.1); }
+        const dx = st.wx - st.x, dy = st.wy - st.y;
+        const sitting = land && Math.hypot(dx, dy) < 0.03 && Math.hypot(st.vx, st.vy) < 0.4;
+        if (!sitting) {      // loose spring toward the waypoint, so it loops and overshoots like a fly
+          const damp = land ? 11 : 6;
+          st.vx += (dx * 30 - st.vx * damp) * a.dt; st.vy += (dy * 30 - st.vy * damp) * a.dt;
+          st.x += st.vx * a.dt; st.y += st.vy * a.dt;
+          if (Math.hypot(st.vx, st.vy) > 0.15) st.ang = Math.atan2(st.vy, st.vx);
+        }
+        const buzz = sitting ? 0 : 0.025;
+        ctl.critter = { kind: 'fly', x: st.x + buzz * Math.sin(a.t * 31), y: st.y + buzz * Math.cos(a.t * 27), ang: st.ang, flap: !sitting };
+        ctl.blink = false;
+        if (!gone) {
+          ctl.saccade = false;
+          tgt.lookX = clamp(st.x / 0.8, -1, 1); tgt.lookY = clamp(st.y / 0.45, -1, 1); ctl.speeds.look = 11;
+          tgt.lid = land ? 0.7 : 1.12; tgt.lidBot = land ? 1.2 : 1; tgt.pupil = land ? 0.13 : 0.3;
+          tgt.shake = sitting ? 0.06 : 0;
+        } else {             // blinks it away, then looks around for it
+          if (!st.off) { st.off = a.t; a.blink(0.3); }
+          const k = a.t - st.off;
+          if (k > 0.45 && !st.b2) { st.b2 = 1; a.blink(0.22); }
+          tgt.shake = Math.max(0, 0.5 - k); ctl.speeds.shake = 30;
+          ctl.sMin = 0.15; ctl.sMax = 0.55; ctl.range = 0.9; tgt.lid = 1.1;
+        }
+      }
+    },
+    {
+      id: 'spider', name: 'Spider Drop', dur: 13,
+      desc: 'A spider lowers itself on a thread right in front of the eye, which watches it, wide and trembling.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        if (st.x == null) st.x = rand(-0.3, 0.3);
+        const top = -a.view.hh - 0.45;
+        const down = smooth(0.05, 0.42, a.p), up = smooth(0.74, 0.9, a.p), hang = down >= 1 && up <= 0;
+        const sway = 0.035 * Math.sin(a.t * 2.1) * down * (1 - up);
+        const y = lerp(lerp(top, 0.03, down), top, up * up) + 0.02 * Math.sin(a.t * 6) * down * (1 - down) * 4;
+        ctl.critter = { kind: 'spider', x: st.x + sway, y, tx: st.x, walk: !hang };
+        if (a.p > 0.09 && a.p < 0.92) {
+          ctl.saccade = false; ctl.blink = false;
+          tgt.lookX = clamp((st.x + sway) / 0.55, -1, 1); tgt.lookY = clamp(y / 0.28, -1, 1); ctl.speeds.look = 9;
+          const near = down * (1 - up);
+          tgt.pupil = lerp(0.36, 0.13, near); tgt.lid = 1 + 0.25 * near; tgt.shake = hang ? 0.07 : 0;
+          if (hang && !st.b1 && a.p > 0.56) { st.b1 = a.t; a.blink(0.13); }
+          if (st.b1 && !st.b2 && a.t > st.b1 + 0.26) { st.b2 = 1; a.blink(0.13); }
+        }
+      }
+    },
+    {
+      id: 'glass', name: 'Let Me Out', dur: 11,
+      desc: 'The eye presses up close and slams against the window until the glass cracks.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.saccade = false; ctl.cracked = a.p < 0.93;
+        const lean = smooth(0, 0.3, a.p) * (1 - smooth(0.8, 0.95, a.p));
+        tgt.scale = 1 + 0.2 * lean; ctl.speeds.scale = 2.5;
+        tgt.lookX = 0.3 * Math.sin(a.t * 0.9) * lean; tgt.lookY = 0.05; ctl.speeds.look = 4;
+        tgt.lid = lerp(1, 0.74, lean); tgt.lidBot = 1.15; tgt.pupil = 0.2;
+        const hits = [0.36, 0.5, 0.6];
+        st.n = st.n || 0;
+        if (st.n < hits.length && a.p > hits[st.n] - 0.04) { tgt.scale = 1.07; ctl.speeds.scale = 14; }   // winds up
+        if (st.n < hits.length && a.p >= hits[st.n]) {
+          if (st.n) a.crack(); else a.crack(rand(-0.35, 0.35), rand(-0.2, 0.2), 1.7);   // each slam spreads it further
+          a.flash(0.3, '255,255,255', 9); st.hit = a.t; st.n++;
+        }
+        const k = st.hit == null ? 9 : a.t - st.hit;
+        if (k < 0.5) {
+          tgt.scale = 1 + 0.2 * lean + 0.16 * Math.exp(-k * 7); ctl.speeds.scale = 60;
+          tgt.shake = Math.exp(-k * 6); ctl.speeds.shake = 60; tgt.lid = 1.25; ctl.speeds.lid = 40;
+        }
+        tgt.blood = 0.25 * st.n; tgt.glow = 0.3 + 0.2 * st.n;
+      }
+    },
+    {
+      id: 'pumpkin', name: "Jack-o'-Lantern", dur: 9,
+      desc: 'The iris burns pumpkin orange and a flickering carved face lights up inside the pupil.',
+      fn(a) {
+        const { tgt, ctl } = a;
+        const on = a.p > 0.08 && a.p < 0.86;
+        ctl.glyph = 'pumpkin'; tgt.glyph = on ? 1 : 0;
+        tgt.pupil = on ? 0.8 : a.base.pupil; tgt.slit = on ? 0 : a.base.slit; ctl.speeds.slit = 6;
+        tgt.hue = on ? 28 : a.base.hue; tgt.sat = 100; tgt.glow = on ? 0.85 : 0.3;
+        ctl.range = 0.3; tgt.lid = 1.1; tgt.dim = on ? 0.25 : 0;
+      }
+    },
+    {
+      id: 'skull', name: "Death's Reflection", dur: 10,
+      desc: 'The eye freezes and the pupil yawns open. A skull drifts closer in its reflection.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.saccade = false; ctl.blink = false; tgt.lookX = 0; tgt.lookY = 0; ctl.speeds.look = 3;
+        const on = a.p > 0.12 && a.p < 0.86;
+        ctl.glyph = 'skull'; ctl.glyphScale = lerp(0.35, 1, smooth(0.12, 0.8, a.p));
+        tgt.glyph = on ? 1 : 0; ctl.speeds.glyph = on ? 1.2 : 14;
+        tgt.pupil = a.p < 0.9 ? 0.86 : a.base.pupil; ctl.speeds.pupil = 2.5;
+        tgt.slit = a.p < 0.9 ? 0 : a.base.slit; ctl.speeds.slit = 6;
+        tgt.sat = 35; tgt.dim = on ? 0.3 : 0; tgt.lid = 1.15; tgt.shake = on ? 0.03 : 0;
+        if (a.p >= 0.86 && !st.b) { st.b = 1; a.blink(0.3); }
+      }
+    },
+    {
+      id: 'lizard', name: 'Third Eyelid', dur: 10,
+      desc: 'No blinking. Instead a milky membrane slides sideways across the eye, like a reptile.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.blink = false; ctl.sMin = 1.6; ctl.sMax = 3.6; ctl.range = 0.75;
+        if (st.next == null) { st.next = rand(0.7, 1.3); st.at = -9; }
+        if (a.t >= st.next) { st.at = a.t; st.next = a.t + rand(1.6, 3.2); }
+        const k = a.t - st.at;
+        tgt.nict = k < 0.28 ? 1 : 0; ctl.speeds.nict = k < 0.28 ? 16 : 9;
+        tgt.lid = 0.92;
+      }
+    },
+    {
+      id: 'target', name: 'Target Lock', dur: 10,
+      desc: 'A targeting reticle sweeps the street with the eye, then snaps onto someone and locks on.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.saccade = false; ctl.blink = false;
+        const on = a.p < 0.92, lock = on && a.p > 0.46;
+        tgt.hud = on ? 1 : 0; ctl.hudLock = lock ? 1 : 0;
+        if (lock) {
+          if (!st.lk) { st.lk = 1; a.flash(0.35, '255,0,0', 5); }
+          tgt.lookX = 0; tgt.lookY = 0; ctl.speeds.look = 26;
+          tgt.pupil = 0.1; ctl.speeds.pupil = 22; tgt.lid = 1.15; tgt.scale = 1.05;
+          tgt.hue = 0; tgt.sat = 100; ctl.speeds.hue = 12; tgt.glow = 1;
+        } else {
+          tgt.lookX = on ? 0.85 * Math.sin(a.t * 1.3) : 0; tgt.lookY = on ? 0.25 * Math.sin(a.t * 2.9) : 0; ctl.speeds.look = 5;
+          tgt.lid = 0.85; tgt.pupil = 0.34;
+        }
+      }
+    },
+    {
+      id: 'disco', name: 'Monster Mash', dur: 10,
+      desc: 'Party time: the eye bops to a beat, changing color under flashing disco lights.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.saccade = false; ctl.blink = false;
+        const beat = 0.5, n = Math.floor(a.t / beat), hit = Math.exp(-((a.t % beat) / beat) * 5);
+        if (n !== st.n) {
+          st.n = n;
+          a.flash(0.2, ['255,0,170', '0,220,255', '255,220,0', '120,255,0'][n % 4], 6);
+          if (n % 8 === 7) a.blink(0.2);
+        }
+        const m = [[-0.8, 0.25], [0.8, 0.25], [-0.8, -0.3], [0.8, -0.3], [0, 0.55], [0, -0.55], [-0.6, 0], [0.6, 0]][n % 8];
+        tgt.lookX = m[0]; tgt.lookY = m[1] + 0.12 * hit; ctl.speeds.look = 16;
+        tgt.hue = (a.base.hue + n * 67) % 360; ctl.speeds.hue = 18; tgt.sat = 100;
+        tgt.scale = 1 + 0.045 * hit; ctl.speeds.scale = 30;
+        tgt.lid = 0.92 + 0.26 * hit; ctl.speeds.lid = 22;
+        tgt.pupil = 0.3 + 0.14 * hit; ctl.speeds.pupil = 20;
+        tgt.glow = 0.5 + 0.5 * hit; ctl.speeds.glow = 25; ctl.rotSpeed = 1.2; tgt.dim = 0.3;
+      }
+    },
+    {
+      id: 'eclipse', name: 'Blood Moon Eclipse', dur: 11,
+      desc: 'Darkness falls as the pupil swallows the iris, leaving only a burning red corona.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.saccade = false; ctl.blink = false; tgt.lookX = 0; tgt.lookY = 0; ctl.speeds.look = 3;
+        const e = smooth(0.05, 0.4, a.p) * (1 - smooth(0.74, 0.86, a.p));
+        tgt.pupil = lerp(a.base.pupil, 0.93, e); ctl.speeds.pupil = 9;
+        tgt.slit = lerp(a.base.slit, 0, e); ctl.speeds.slit = 9;
+        tgt.hue = hueLerp(a.base.hue, 14, e); tgt.sat = 100; ctl.speeds.hue = 6;
+        tgt.dim = 0.45 * e; tgt.glow = 0.25 + 0.75 * e; tgt.blood = 0.35 * e;
+        tgt.lid = 1 + 0.12 * e; tgt.shake = e > 0.98 ? 0.05 : 0;
+        if (a.p > 0.74 && !st.ring) { st.ring = 1; a.flash(0.55, '255,225,190', 2.5); }
+      }
+    },
+    {
+      id: 'rem', name: 'Bad Dream', dur: 12,
+      desc: 'Fast asleep, but the eyeball darts around under the closed lid. Then it jolts awake in a panic.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.blink = false;
+        if (a.p < 0.62) {
+          const deep = smooth(0.03, 0.13, a.p);
+          tgt.lid = (1 - deep) + (deep >= 1 && Math.sin(a.t * 3.1) > 0.93 ? 0.07 : 0); ctl.speeds.lid = 5;
+          tgt.rem = deep; tgt.shake = 0.04 * deep;
+          ctl.sMin = 0.12; ctl.sMax = 0.7; ctl.range = 1; ctl.speeds.look = 20;
+        } else if (a.p < 0.86) {
+          if (!st.up) st.up = a.t;
+          tgt.lid = 1.36; ctl.speeds.lid = 60; tgt.pupil = 0.62; ctl.speeds.pupil = 30;
+          tgt.shake = Math.max(0, 0.5 - (a.t - st.up) * 0.5); ctl.speeds.shake = 40;
+          ctl.sMin = 0.12; ctl.sMax = 0.4; ctl.range = 0.95;
+        } else { tgt.lid = 0.9; ctl.sMin = 0.8; ctl.sMax = 2; }
+      }
+    },
+    {
+      id: 'eyeroll', name: 'Unimpressed', dur: 8,
+      desc: 'A flat, half-lidded stare, a huge sarcastic eye-roll and one very slow blink.',
+      fn(a) {
+        const { tgt, ctl, st } = a;
+        ctl.saccade = false; ctl.blink = false;
+        const cyc = 4, n = Math.floor(a.t / cyc), q = (a.t % cyc) / cyc;
+        tgt.lid = 0.6; tgt.lidBot = 1.1; tgt.pupil = 0.3;
+        if (q > 0.3 && q < 0.68) {
+          const th = Math.PI * (1 + smooth(0.3, 0.68, q));   // over the top, corner to corner
+          tgt.lookX = Math.cos(th) * 0.8 * (n % 2 ? -1 : 1); tgt.lookY = Math.sin(th) * 1.25; ctl.speeds.look = 9; tgt.lid = 0.8;
+        } else {
+          tgt.lookX = 0; tgt.lookY = 0.05; ctl.speeds.look = q < 0.3 ? 6 : 10;
+          if (q >= 0.72 && st.b !== n) { st.b = n; a.blink(0.5); }
+        }
+      }
+    },
+    {
+      id: 'peek', name: 'Peekaboo', dur: 10,
+      desc: 'Hides behind its lid, sneaks a peek left and right through a crack, then pops wide open.',
+      fn(a) {
+        const { tgt, ctl, st } = a, p = a.p;
+        ctl.saccade = false; ctl.blink = false; tgt.lookX = 0; tgt.lookY = 0;
+        if (p < 0.12) { tgt.lid = 0; ctl.speeds.lid = 7; tgt.lookY = 0.55; }
+        else if (p < 0.5) {
+          tgt.lid = (p > 0.27 && p < 0.31) ? 0 : 0.24; ctl.speeds.lid = 9;
+          tgt.lookX = p > 0.29 ? 0.92 : -0.92; tgt.lookY = 0.55; ctl.speeds.look = 7; tgt.pupil = 0.44;
+        } else if (p < 0.6) { tgt.lid = 0; ctl.speeds.lid = 9; tgt.lookY = 0.3; }
+        else if (p < 0.9) {
+          if (!st.pop) st.pop = a.t;
+          const k = a.t - st.pop;
+          tgt.lid = 1.32; ctl.speeds.lid = 55;
+          tgt.scale = 1 + 0.08 * Math.exp(-k * 3); ctl.speeds.scale = 40;
+          tgt.pupil = 0.22 + 0.2 * smooth(0, 0.8, k); ctl.speeds.pupil = 12;
+          tgt.lookX = 0.35 * Math.sin(k * 10) * Math.exp(-k * 1.2); ctl.speeds.look = 25; tgt.glow = 0.7;
+        }
+      }
     }
   ];
 
@@ -417,6 +657,65 @@
       group: 'realistic', photoHL: true, skin: 'octo', sclera: 'iris', iris: 'photo', lashes: 'none',
       veinMul: 0, crease: 0.1, lidAlpha: 0.08, shadow: 1.1, rimW: 0.02, rimSoft: true, innerShift: 6,
       rim: sk => `hsl(${sk},40%,16%)`
+    },
+    {
+      id: 'cat', name: 'Black Cat',
+      desc: 'A realistic cat eye: luminous green-gold iris and a vertical slit pupil in sleek black fur.',
+      irisHue: 66, irisSat: 82, skinHue: 240, skinS: 8, skinL: 13,
+      size: 0.9, open: 0.95, irisSize: 0.66, lookScale: 0.42, pupil: 0.62, slit: 0.92, glow: 0.12,
+      group: 'realistic', photoHL: true, skin: 'fur', fur: 'cat', sclera: 'iris', iris: 'photo', lashes: 'none',
+      veinMul: 0, crease: 0.1, lidAlpha: 0.06, shadow: 1.15, rimW: 0.03, rimSoft: true, innerShift: 28,
+      rim: () => '#040404'
+    },
+    {
+      id: 'vampire', name: 'Vampire',
+      desc: 'A realistic undead eye: porcelain skin, a shadowed socket, dark lashes and a glowing blood-red iris.',
+      irisHue: 356, irisSat: 88, skinHue: 250, skinS: 8, skinL: 70,
+      size: 0.8, open: 0.7, irisSize: 0.37, lookScale: 0.85, pupil: 0.26, slit: 0, glow: 0.3,
+      group: 'realistic', photoHL: true, skin: 'human', socket: 'rgba(55,15,60,.6)', sclera: 'human', iris: 'photo', lashes: 'fine',
+      veinMul: 0.8, crease: 0.25, lidAlpha: 0.1, shadow: 1.1, rimW: 0.011, caruncle: true, innerShift: 20,
+      rim: () => 'hsl(350,40%,45%)'
+    },
+    {
+      id: 'clown', name: 'Creepy Clown',
+      desc: 'Cracked white greasepaint, a blue diamond painted through the eye and a sickly yellow iris.',
+      irisHue: 52, irisSat: 90, skinHue: 40, skinS: 8, skinL: 86,
+      size: 0.8, open: 0.78, irisSize: 0.37, lookScale: 0.85, pupil: 0.24, slit: 0, glow: 0.2,
+      group: 'realistic', photoHL: true, skin: 'clown', sclera: 'human', iris: 'photo', lashes: 'fine',
+      veinMul: 1.1, crease: 0.25, lidAlpha: 0.05, shadow: 1, rimW: 0.012, caruncle: true, innerShift: -16,
+      rim: () => 'hsl(355,45%,42%)'
+    },
+    {
+      id: 'mummy', name: 'Mummy',
+      desc: 'A dry amber eye glaring out of a gap in dusty, fraying linen wrappings.',
+      irisHue: 38, irisSat: 85, skinHue: 28, skinS: 28, skinL: 22,
+      size: 0.9, open: 0.8, irisSize: 0.36, lookScale: 0.9, pupil: 0.26, slit: 0, glow: 0.35,
+      group: 'stylized', skin: 'bandage', sclera: 'yellow', iris: 'fibers', lashes: 'none', veinMul: 1.3, crease: 0.5, lidAlpha: 0.85,
+      rim: () => 'hsl(20,35%,12%)'
+    },
+    {
+      id: 'pumpkin', name: "Jack-o'-Lantern",
+      desc: 'An eye carved into a pumpkin: thick orange rind, flickering candlelight inside and a flame for an iris.',
+      irisHue: 16, irisSat: 100, skinHue: 26, skinS: 85, skinL: 33,
+      size: 1, open: 1, irisSize: 0.34, lookScale: 1, pupil: 0.34, slit: 0, glow: 0.7,
+      group: 'stylized', skin: 'pumpkin', sclera: 'candle', iris: 'fire', lashes: 'none', veinMul: 0, crease: 0, lidAlpha: 0.3, rimW: 0.05,
+      rim: () => 'hsl(40,88%,60%)'
+    },
+    {
+      id: 'spider', name: 'Giant Spider',
+      desc: 'A cluster of glossy black eyes in bristling dark hair. The big one in the middle is looking at you.',
+      irisHue: 352, irisSat: 90, skinHue: 22, skinS: 20, skinL: 15,
+      size: 0.78, open: 1.25, irisSize: 0.6, lookScale: 0.4, pupil: 0.46, slit: 0, glow: 0.35,
+      group: 'stylized', skin: 'spider', fur: 'spider', sclera: 'black', iris: 'orb', lashes: 'none', veinMul: 0, crease: 0.2, lidAlpha: 0.85, rimW: 0.03,
+      rim: () => '#020202'
+    },
+    {
+      id: 'alien', name: 'Alien',
+      desc: 'A huge dark eye in smooth grey skin, with a slowly turning galaxy where the iris should be.',
+      irisHue: 265, irisSat: 85, skinHue: 150, skinS: 10, skinL: 40,
+      size: 1, open: 0.95, irisSize: 0.62, lookScale: 0.5, pupil: 0.22, slit: 0, glow: 0.5,
+      group: 'stylized', skin: 'alien', sclera: 'void', iris: 'galaxy', lashes: 'none', veinMul: 0, crease: 0.35, lidAlpha: 0.82,
+      rim: sk => `hsl(${sk},15%,10%)`
     }
   ];
 
@@ -494,16 +793,22 @@
     const BASE = {
       lookX: 0, lookY: 0, pupil: 0.38, slit: 0, hue: 95, sat: 90,
       lid: 1, lidTop: 1, lidBot: 1, blood: 0, shake: 0, scale: 1,
-      spiral: 0, multi: 0, glow: 0.25, dim: 0
+      spiral: 0, multi: 0, glow: 0.25, dim: 0,
+      nict: 0, glyph: 0, rem: 0, hud: 0
     };
     const SPEEDS = {
       lookX: 14, lookY: 14, pupil: 4, slit: 3, hue: 2.5, sat: 3,
       lid: 8, lidTop: 8, lidBot: 8, blood: 2.5, shake: 6, scale: 6,
-      spiral: 2.5, multi: 3, glow: 3, dim: 3
+      spiral: 2.5, multi: 3, glow: 3, dim: 3,
+      nict: 14, glyph: 3, rem: 4, hud: 6
     };
     const cur = Object.assign({}, BASE);
     let rot = 0, clock = 0, lastDraw = 0;
-    const fx = { flashA: 0, flashColor: '255,255,255', flashDecay: 4, glitch: 0, drips: [], dripAlpha: 0 };
+    const fx = {
+      flashA: 0, flashColor: '255,255,255', flashDecay: 4, glitch: 0, drips: [], dripAlpha: 0,
+      cracks: [], crackAlpha: 0, critter: null, glyph: 'pumpkin', glyphScale: 1, hudLock: 0, hudAng: 0
+    };
+    let irisX = 0, irisY = 0;   // where the iris was last drawn, for overlays
     const sac = { next: 0, x: 0, y: 0 };
     const blk = { start: -10, dur: 0.16, next: 2 };
     const swap = { start: -10, dur: 0.6 };
@@ -622,8 +927,27 @@
       return c;
     }
 
+    function makeGalaxy() {
+      const [c, g, R] = newTex(512);
+      for (let i = 0; i < 60; i++) {           // nebula clouds along two spiral arms
+        const u = Math.random(), a = (i % 2) * Math.PI + u * 5 + rand(-0.3, 0.3), r = R * (0.15 + 0.75 * u), s = R * rand(0.1, 0.24);
+        const x = Math.cos(a) * r, y = Math.sin(a) * r, ng = g.createRadialGradient(x, y, 0, x, y, s);
+        const col = Math.random() < 0.5 ? '190,150,255' : '120,200,255';
+        ng.addColorStop(0, `rgba(${col},.14)`); ng.addColorStop(1, `rgba(${col},0)`);
+        g.fillStyle = ng; g.fillRect(x - s, y - s, s * 2, s * 2);
+      }
+      for (let i = 0; i < 1500; i++) {         // stars, denser along the arms
+        const u = Math.random(), arm = Math.random() < 0.75;
+        const a = arm ? (i % 2) * Math.PI + u * 5 + rand(-0.35, 0.35) * (1.2 - u) : Math.random() * TAU;
+        const r = R * (arm ? 0.15 + 0.8 * u : Math.sqrt(Math.random()) * 0.97);
+        g.fillStyle = `rgba(255,${Math.round(rand(220, 255))},${Math.round(rand(200, 255))},${rand(0.15, 0.9)})`;
+        g.beginPath(); g.arc(Math.cos(a) * r, Math.sin(a) * r, Math.random() < 0.04 ? rand(1.6, 2.6) : rand(0.5, 1.3), 0, TAU); g.fill();
+      }
+      return c;
+    }
+
     function getTex(name) {
-      if (!tex[name]) tex[name] = name === 'human' ? makeHumanIris() : name === 'cracks' ? makeCracks() : makeFibers();
+      if (!tex[name]) tex[name] = ({ human: makeHumanIris, cracks: makeCracks, galaxy: makeGalaxy }[name] || makeFibers)();
       return tex[name];
     }
 
@@ -720,7 +1044,7 @@
       // eye-socket shadow (a deep bruised hollow on the corpse)
       g.save(); g.translate(cx, cy); g.scale(1, 0.62);
       let sg = g.createRadialGradient(0, 0, Rw * 0.8, 0, 0, Rw * (T.corpse ? 1.9 : 1.7));
-      sg.addColorStop(0, T.corpse ? 'rgba(45,25,55,.62)' : 'rgba(70,30,25,.3)'); sg.addColorStop(1, 'rgba(45,25,40,0)');
+      sg.addColorStop(0, T.socket || (T.corpse ? 'rgba(45,25,55,.62)' : 'rgba(70,30,25,.3)')); sg.addColorStop(1, 'rgba(45,25,40,0)');
       g.fillStyle = sg; g.fillRect(-Rw * 2, -Rw * 2, Rw * 4, Rw * 4);
       g.restore();
       // pores
@@ -918,22 +1242,23 @@
     }
 
     function skinFur(g, sk, S, L) {
-      const goat = T.fur === 'goat';
+      const kind = T.fur, goat = kind === 'goat', dark = kind === 'cat' || kind === 'spider';
       radialBg(g, [[0, `hsl(${sk},${S}%,${L * 0.85}%)`], [0.5, `hsl(${sk},${S}%,${L * 0.55}%)`], [1, `hsl(${sk},${S * 0.8}%,${L * 0.1}%)`]]);
       noiseOverlay(g, 0.5, Rw / 110);
       const B = 12, paths = Array.from({ length: B }, () => new Path2D());
-      const count = Math.round(W * H / (goat ? 22 : 18));
-      const hair = Rw * (goat ? 0.035 : 0.05);
+      const count = Math.round(W * H / ({ goat: 22, cat: 20, spider: 26 }[kind] || 18));
+      const hair = Rw * ({ goat: 0.035, cat: 0.04, spider: 0.085 }[kind] || 0.05);
       for (let i = 0; i < count; i++) {
         const x = Math.random() * W, y = Math.random() * H;
         const dx = (x - cx) / Rw, dy = (y - cy) / (H0 * 1.8), d = Math.hypot(dx, dy);
         if (d < 0.6) continue;
-        // fur flows away from the eye and back toward the ear (right)
+        // fur flows away from the eye and back toward the ear (right); spider bristles stick straight out
         const rx = (x - cx) / (d * Rw + 1), ry = (y - cy) / (d * Rw + 1);
-        const ang = Math.atan2(ry * 0.6 - 0.25, rx * 0.6 + 0.85) + (fbm(x / W * 2.5, y / H * 2.5, 64, 64, 3, 41) - 0.5) * 1.1;
+        const ang = (kind === 'spider' ? Math.atan2(ry, rx) : Math.atan2(ry * 0.6 - 0.25, rx * 0.6 + 0.85)) + (fbm(x / W * 2.5, y / H * 2.5, 64, 64, 3, 41) - 0.5) * 1.1;
         const len = hair * (0.7 + 0.3 * Math.min(2, d)) * rand(0.7, 1.3);
         let b = 0.55 + (fbm(x / W * 5 + 3, y / H * 5, 64, 64, 3, 13) - 0.5) * 0.8 + rand(-0.12, 0.12);
-        if (!goat) {
+        if (dark) b *= 0.65 + 0.45 * smooth(0.8, 1.9, d);
+        else if (!goat) {
           b *= 0.4 + 0.8 * smooth(1.05, 2.0, d);                                   // dark mask around the eye
           const sx = (x - (cx + Rw)) / Rw, sy = (y - cy - (x - cx - Rw) * 0.35) / Rw;
           if (sx > 0 && sx < 1.3 && Math.abs(sy) < 0.05 + sx * 0.05) b *= 0.5;      // dark streak from the outer corner
@@ -944,8 +1269,8 @@
         p.moveTo(x, y);
         p.quadraticCurveTo(x + Math.cos(ang + 0.25) * len * 0.5, y + Math.sin(ang + 0.25) * len * 0.5, x + Math.cos(ang) * len, y + Math.sin(ang) * len);
       }
-      g.lineCap = 'round'; g.lineWidth = Math.max(0.8, Rw * 0.003); g.globalAlpha = 0.45;
-      paths.forEach((p, k) => { g.strokeStyle = `hsl(${sk},${S}%,${Math.min(92, L * (0.3 + 1.05 * (k + 0.5) / B))}%)`; g.stroke(p); });
+      g.lineCap = 'round'; g.lineWidth = Math.max(0.8, Rw * (kind === 'spider' ? 0.0045 : 0.003)); g.globalAlpha = 0.45;
+      paths.forEach((p, k) => { g.strokeStyle = `hsl(${sk},${S}%,${Math.min(92, L * (0.3 + (dark ? 1.9 : 1.05) * (k + 0.5) / B))}%)`; g.stroke(p); });
       g.globalAlpha = 1;
       radialVignette(g);
     }
@@ -982,13 +1307,214 @@
       radialVignette(g);
     }
 
+    function skinSpider(g, sk, S, L) {
+      skinFur(g, sk, S, L);
+      // the smaller eyes of the cluster: glossy domes that never move or blink
+      for (const [ux, uy, ur] of [[-1.3, -0.72, 0.26], [1.3, -0.72, 0.26], [-1.62, 0.08, 0.19], [1.62, 0.08, 0.19], [-1.15, 0.82, 0.17], [1.15, 0.82, 0.17]]) {
+        const x = cx + ux * Rw, y = cy + uy * Rw, r = ur * Rw;
+        let eg = g.createRadialGradient(x, y, r * 0.9, x, y, r * 1.35);
+        eg.addColorStop(0, 'rgba(0,0,0,.85)'); eg.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = eg; g.beginPath(); g.arc(x, y, r * 1.35, 0, TAU); g.fill();
+        eg = g.createRadialGradient(x + r * 0.25, y + r * 0.3, r * 0.05, x, y, r);
+        eg.addColorStop(0, 'hsl(352,85%,24%)'); eg.addColorStop(0.5, 'hsl(352,70%,7%)'); eg.addColorStop(1, '#000');
+        g.fillStyle = eg; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+        g.fillStyle = 'rgba(255,255,255,.8)';
+        g.beginPath(); g.ellipse(x - r * 0.38, y - r * 0.4, r * 0.2, r * 0.13, -0.5, 0, TAU); g.fill();
+        g.fillStyle = 'rgba(255,255,255,.35)';
+        g.beginPath(); g.ellipse(x + r * 0.34, y + r * 0.42, r * 0.07, r * 0.05, -0.5, 0, TAU); g.fill();
+      }
+    }
+
+    function skinClown(g, sk, S, L) {
+      radialBg(g, [[0, `hsl(${sk},${S}%,${L}%)`], [0.35, `hsl(${sk},${S}%,${L * 0.88}%)`], [0.7, `hsl(${sk},${S * 1.4}%,${L * 0.5}%)`], [1, `hsl(${sk},${S}%,${L * 0.08}%)`]]);
+      noiseOverlay(g, 0.3, Rw / 90);
+      // smudged dark greasepaint around the socket
+      g.save(); g.translate(cx, cy); g.scale(1, 0.62);
+      const sg = g.createRadialGradient(0, 0, Rw * 0.8, 0, 0, Rw * 1.6);
+      sg.addColorStop(0, 'rgba(25,20,45,.55)'); sg.addColorStop(1, 'rgba(25,20,45,0)');
+      g.fillStyle = sg; g.fillRect(-Rw * 2, -Rw * 2, Rw * 4, Rw * 4);
+      g.restore();
+      // thin painted-on brow, arched high
+      g.lineCap = 'round'; g.strokeStyle = 'rgba(18,14,22,.85)';
+      for (let i = 0; i < 24; i++) {
+        const t0 = i / 24, t1 = (i + 1.2) / 24, pt = t => [cx + Rw * lerp(-0.98, 1.02, t), cy - Rw * (0.5 + 0.34 * Math.sin(Math.PI * Math.pow(t, 0.8)))];
+        g.lineWidth = Rw * (0.012 + 0.03 * Math.sin(Math.PI * t0));
+        g.beginPath(); g.moveTo(...pt(t0)); g.lineTo(...pt(t1)); g.stroke();
+      }
+      // blue diamond painted straight through the eye
+      const tip = Math.min(H0 * 3.2, H * 0.47), hw = Rw * 0.5;
+      const dg = g.createLinearGradient(0, cy - tip, 0, cy + tip);
+      dg.addColorStop(0, 'hsla(218,80%,22%,.9)'); dg.addColorStop(0.5, 'hsla(212,85%,38%,.92)'); dg.addColorStop(1, 'hsla(218,80%,22%,.9)');
+      g.fillStyle = dg; g.beginPath(); g.moveTo(cx - hw, cy);
+      for (const sy of [-1, 1]) {   // over the top tip to the right side, then under the bottom tip and back
+        g.quadraticCurveTo(cx + sy * hw * 0.25, cy + sy * tip * 0.45, cx, cy + sy * tip);
+        g.quadraticCurveTo(cx - sy * hw * 0.25, cy + sy * tip * 0.45, cx - sy * hw, cy);
+      }
+      g.fill();
+      // the paint is old: cracks, and flakes where skin shows through
+      g.lineJoin = 'miter'; g.strokeStyle = 'rgba(60,50,48,.38)'; g.lineWidth = Math.max(0.8, Rw * 0.0035);
+      g.beginPath();
+      for (let i = 0; i < 70; i++) {       // craquelure: short straight runs with sharp turns and forks
+        let x = Math.random() * W, y = Math.random() * H, a = rand(0, TAU);
+        g.moveTo(x, y);
+        for (let k = 0, n = Math.round(rand(3, 8)); k < n; k++) {
+          a += rand(0.5, 1.3) * (Math.random() < 0.5 ? -1 : 1);
+          x += Math.cos(a) * Rw * rand(0.03, 0.09); y += Math.sin(a) * Rw * rand(0.03, 0.09);
+          g.lineTo(x, y);
+          if (Math.random() < 0.35) { const b = a + rand(0.7, 1.6), l = Rw * rand(0.02, 0.06); g.lineTo(x + Math.cos(b) * l, y + Math.sin(b) * l); g.moveTo(x, y); }
+        }
+      }
+      g.stroke();
+      for (let i = 0; i < 80; i++) {
+        const x = Math.random() * W, y = Math.random() * H;
+        if (!outsideEye(x, y, 0.8)) continue;
+        g.fillStyle = `hsla(${rand(14, 26)},40%,${rand(48, 62)}%,${rand(0.3, 0.6)})`;
+        g.beginPath(); g.ellipse(x, y, Rw * rand(0.008, 0.03), Rw * rand(0.005, 0.016), rand(0, TAU), 0, TAU); g.fill();
+      }
+      for (let i = 0; i < 3000; i++) {
+        g.fillStyle = `rgba(40,30,30,${rand(0.03, 0.1)})`;
+        g.fillRect(Math.random() * W, Math.random() * H, rand(1, 2), rand(1, 2));
+      }
+      noiseOverlay(g, 0.25, Rw / 600);
+      radialVignette(g);
+    }
+
+    function skinBandage(g, sk, S, L) {
+      radialBg(g, [[0, `hsl(${sk},${S}%,${L * 1.15}%)`], [0.4, `hsl(${sk},${S}%,${L * 0.6}%)`], [1, '#000']]);
+      g.lineCap = 'round'; g.strokeStyle = 'rgba(0,0,0,.4)';
+      for (let i = 0; i < 40; i++) {     // dry, cracked skin in the gap
+        const a = Math.random() * TAU;
+        crackPath(g, cx + Math.cos(a) * Rw * rand(1.05, 1.3), cy + Math.sin(a) * H0 * rand(1.3, 2), a + rand(-0.6, 0.6), Rw * rand(0.15, 0.5), Rw * 0.006, 0);
+      }
+      // one linen strip: a band following a curve from the left edge, through (cx, yC), to the right edge
+      const m = W * 0.05;
+      const strip = (yL, yC, yR, h, lum) => {
+        const edge = o => { g.moveTo(-m, yL + o); g.quadraticCurveTo(cx, yC + o, W + m, yR + o); };
+        const band = () => {
+          g.beginPath(); edge(-h / 2);
+          g.lineTo(W + m, yR + h / 2); g.quadraticCurveTo(cx, yC + h / 2, -m, yL + h / 2); g.closePath();
+        };
+        g.save(); g.translate(0, h * 0.1); band(); g.fillStyle = 'rgba(0,0,0,.5)'; g.fill(); g.restore();   // cast shadow
+        band(); g.fillStyle = `hsl(${rand(36, 44)},${rand(18, 28)}%,${lum}%)`; g.fill();
+        g.save(); g.clip();
+        g.lineWidth = 1;
+        for (let j = 1; j < 16; j++) {          // weave: long threads...
+          g.strokeStyle = `rgba(60,40,20,${rand(0.05, 0.16)})`;
+          g.beginPath(); edge(lerp(-h / 2, h / 2, j / 16) + rand(-1, 1)); g.stroke();
+        }
+        g.strokeStyle = 'rgba(60,40,20,.07)'; g.beginPath();
+        for (let x = -m; x < W + m; x += Math.max(3, Rw * 0.012)) {   // ...and cross threads
+          const t = (x + m) / (W + 2 * m), y = (1 - t) * (1 - t) * yL + 2 * t * (1 - t) * yC + t * t * yR;
+          g.moveTo(x, y - h / 2); g.lineTo(x, y + h / 2);
+        }
+        g.stroke();
+        for (let j = 0; j < 5; j++) {           // old stains
+          const x = Math.random() * W, t = (x + m) / (W + 2 * m), y = (1 - t) * (1 - t) * yL + 2 * t * (1 - t) * yC + t * t * yR, r = h * rand(0.5, 1.4);
+          const bg = g.createRadialGradient(x, y, 0, x, y, r);
+          bg.addColorStop(0, `hsla(${rand(22, 40)},45%,22%,${rand(0.12, 0.3)})`); bg.addColorStop(1, 'hsla(30,45%,22%,0)');
+          g.fillStyle = bg; g.fillRect(x - r, y - r, r * 2, r * 2);
+        }
+        g.strokeStyle = 'rgba(255,245,220,.22)'; g.lineWidth = h * 0.16; g.beginPath(); edge(-h / 2); g.stroke();
+        g.strokeStyle = 'rgba(30,18,8,.5)'; g.lineWidth = h * 0.3; g.beginPath(); edge(h / 2); g.stroke();
+        g.restore();
+        g.strokeStyle = `hsla(40,24%,${lum + 6}%,.7)`; g.lineWidth = Math.max(0.8, Rw * 0.003); g.beginPath();
+        for (let j = 0; j < 46; j++) {          // frayed threads along both edges
+          const x = Math.random() * W, t = (x + m) / (W + 2 * m), sd = j % 2 ? 1 : -1, l = h * rand(0.06, 0.22);
+          const y = (1 - t) * (1 - t) * yL + 2 * t * (1 - t) * yC + t * t * yR + sd * h / 2;
+          g.moveTo(x, y); g.quadraticCurveTo(x + rand(-1, 1) * l, y + sd * l * 0.6, x + rand(-1.5, 1.5) * l, y + sd * l);
+        }
+        g.stroke();
+      };
+      // layers of wrapping above and below; the ones framing the eye go on last
+      const hS = H0 * 0.78, n = Math.ceil((H / 2 / H0 - 0.4) / 0.6) + 1;
+      for (let k = n; k >= 1; k--) for (const s of [-1, 1]) {
+        if (k === 1) {   // a loose diagonal wrap tucked under the framing strip
+          const d = rand(0.9, 1.3) * (Math.random() < 0.5 ? -1 : 1);
+          strip(cy + s * H0 * (2.05 + d), cy + s * H0 * 2.25, cy + s * H0 * (2.05 - d), hS * 0.9, rand(40, 52));
+        }
+        const j = k > 1 ? 1 : 0.25, tilt = rand(-0.55, 0.55) * H0 * j;
+        const end = 0.78 + (k - 1) * 0.6, mid = 2.9 + (k - 1) * 0.6 + rand(-0.15, 0.15) * j;
+        strip(cy + s * H0 * end + tilt, cy + s * H0 * mid, cy + s * H0 * end - tilt, hS * rand(0.9, 1.1), rand(44, 60) - k * 2);
+      }
+      noiseOverlay(g, 0.35, Rw / 80);
+      radialVignette(g);
+    }
+
+    function skinPumpkin(g, sk, S, L) {
+      g.fillStyle = `hsl(${sk},${S}%,${L * 0.4}%)`; g.fillRect(0, 0, W, H);
+      // ribs, bulging at eye height
+      const rw = Rw * 0.48, n = Math.ceil(W / rw / 2) + 2;
+      for (let i = -n; i <= n; i++) {
+        const e0 = (i - 0.5) * rw, e1 = (i + 0.5) * rw, lum = L * rand(0.93, 1.07);
+        const lg = g.createLinearGradient(cx + e0 * 1.075, 0, cx + e1 * 1.075, 0);
+        lg.addColorStop(0, `hsl(${sk - 10},${S}%,${lum * 0.22}%)`); lg.addColorStop(0.16, `hsl(${sk - 4},${S}%,${lum * 0.72}%)`);
+        lg.addColorStop(0.42, `hsl(${sk + 5},${S}%,${lum * 1.2}%)`); lg.addColorStop(0.8, `hsl(${sk},${S}%,${lum * 0.75}%)`);
+        lg.addColorStop(1, `hsl(${sk - 10},${S}%,${lum * 0.22}%)`);
+        g.fillStyle = lg; g.beginPath();
+        g.moveTo(cx + e0 * 0.85, 0); g.quadraticCurveTo(cx + e0 * 1.3, cy, cx + e0 * 0.85, H);
+        g.lineTo(cx + e1 * 0.85, H); g.quadraticCurveTo(cx + e1 * 1.3, cy, cx + e1 * 0.85, 0);
+        g.closePath(); g.fill();
+      }
+      noiseOverlay(g, 0.4, Rw / 120);
+      for (let i = 0; i < 1800; i++) {
+        g.fillStyle = `rgba(70,25,0,${rand(0.08, 0.25)})`;
+        g.fillRect(Math.random() * W, Math.random() * H, rand(1, 3), rand(1, 3));
+      }
+      g.lineCap = 'round'; g.strokeStyle = 'hsla(40,60%,70%,.2)';   // pale scars
+      for (let i = 0; i < 14; i++) crackPath(g, Math.random() * W, Math.random() * H, rand(1.2, 1.9), Rw * rand(0.08, 0.3), Rw * 0.006, 2);
+      // candlelight spilling out of the hole
+      g.save(); g.globalCompositeOperation = 'lighter'; g.translate(cx, cy); g.scale(1, 0.7);
+      const cg = g.createRadialGradient(0, 0, Rw * 0.8, 0, 0, Rw * 1.7);
+      cg.addColorStop(0, 'rgba(255,140,30,.24)'); cg.addColorStop(1, 'rgba(255,140,30,0)');
+      g.fillStyle = cg; g.fillRect(-Rw * 2, -Rw * 2, Rw * 4, Rw * 4);
+      g.restore();
+      radialVignette(g);
+    }
+
+    function skinAlien(g, sk, S, L) {
+      radialBg(g, [[0, `hsl(${sk},${S}%,${L * 1.15}%)`], [0.4, `hsl(${sk},${S}%,${L * 0.78}%)`], [0.8, `hsl(${sk + 15},${S + 6}%,${L * 0.28}%)`], [1, '#000']]);
+      noiseOverlay(g, 0.4, Rw / 150);
+      noiseOverlay(g, 0.2, Rw / 500);
+      g.save(); g.translate(cx, cy); g.scale(1, 0.62);          // deep socket
+      const sg = g.createRadialGradient(0, 0, Rw * 0.8, 0, 0, Rw * 1.7);
+      sg.addColorStop(0, 'rgba(0,12,14,.55)'); sg.addColorStop(1, 'rgba(0,12,14,0)');
+      g.fillStyle = sg; g.fillRect(-Rw * 2, -Rw * 2, Rw * 4, Rw * 4);
+      g.restore();
+      g.lineCap = 'round';
+      for (let k = 1; k <= 6; k++) {                            // smooth folds wrapping the socket
+        const rx = Rw * (1.1 + k * 0.13), ry = H0 * (1.75 + k * 0.33), s = rand(0, TAU), e = s + rand(0.8, 2.2);
+        g.strokeStyle = 'rgba(0,0,0,.2)'; g.lineWidth = Rw * 0.012;
+        g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, s, e); g.stroke();
+        g.strokeStyle = 'rgba(255,255,255,.06)'; g.lineWidth = Rw * 0.008;
+        g.beginPath(); g.ellipse(cx, cy + Rw * 0.012, rx, ry, 0, s, e); g.stroke();
+      }
+      g.strokeStyle = `hsla(${sk + 40},35%,18%,.22)`;           // faint veins under the skin
+      for (let i = 0; i < 14; i++) {
+        const a = Math.random() * TAU;
+        crackPath(g, cx + Math.cos(a) * Rw * 1.25, cy + Math.sin(a) * H0 * 2.3, a + rand(-0.5, 0.5), Rw * rand(0.3, 0.8), Rw * 0.006, 0);
+      }
+      for (const [ux, uy, ur, al] of [[-0.9, -0.75, 0.9, 0.16], [0.8, 0.7, 0.6, 0.08]]) {   // wet sheen
+        const x = cx + ux * Rw, y = cy + uy * Rw, r = ur * Rw, hg = g.createRadialGradient(x, y, 0, x, y, r);
+        hg.addColorStop(0, `rgba(255,255,255,${al})`); hg.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = hg; g.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+      radialVignette(g);
+    }
+
+    const SKINS = {
+      warty: skinWarty, human: skinHuman, scales: skinScales, charred: skinCharred, rotten: skinRotten, metal: skinMetal, fur: skinFur, octo: skinOcto,
+      spider: skinSpider, clown: skinClown, bandage: skinBandage, pumpkin: skinPumpkin, alien: skinAlien
+    };
+    const SKIN_CACHE_MAX = 10;   // each cached skin is a full-screen canvas
     function getSkin() {
       const sk = colors().sk, key = `${T.id}|${sk}|${W}x${H}|${Rw.toFixed(1)}`;
-      if (skinCache[key]) return skinCache[key];
-      const c = document.createElement('canvas');
+      let c = skinCache[key];
+      if (c) { delete skinCache[key]; skinCache[key] = c; return c; }   // move to the back: most recently used
+      c = document.createElement('canvas');
       c.width = W; c.height = H;
-      const g = c.getContext('2d');
-      ({ warty: skinWarty, human: skinHuman, scales: skinScales, charred: skinCharred, rotten: skinRotten, metal: skinMetal, fur: skinFur, octo: skinOcto })[T.skin](g, sk, T.skinS, T.skinL);
+      SKINS[T.skin](c.getContext('2d'), sk, T.skinS, T.skinL);
+      const keys = Object.keys(skinCache);
+      if (keys.length >= SKIN_CACHE_MAX) delete skinCache[keys[0]];
       skinCache[key] = c;
       return c;
     }
@@ -1022,8 +1548,8 @@
       const cw = rect.width || window.innerWidth, ch = rect.height || window.innerHeight;
       W = Math.max(2, Math.round(cw * s)); H = Math.max(2, Math.round(ch * s));
       canvas.width = W; canvas.height = H;
-      cx = W / 2; cy = H / 2;
-      skinCache = {};
+      cx = W / 2; cy = H / 2; irisX = cx; irisY = cy;
+      skinCache = {}; fx.cracks.length = 0;
       rebuild();
     }
 
@@ -1099,6 +1625,36 @@
       fx.flashColor = col || '255,255,255';
       fx.flashDecay = decay || 4;
     }
+    // A spiderweb fracture in the "window", centred x,y eye-widths from the middle. It is built in three
+    // rings; the first shows straight away and calling crack() again with no arguments spreads it outward.
+    function addCrack(ux, uy, size) {
+      if (ux == null) { const c = fx.cracks[fx.cracks.length - 1]; if (c) c.shown = Math.min(3, c.shown + 1); return; }
+      const x0 = cx + ux * Rw, y0 = cy + uy * Rw, R = Rw * size, stages = [new Path2D(), new Path2D(), new Path2D()];
+      const n = Math.round(rand(9, 13)), steps = 9, rays = [];
+      for (let i = 0; i < n; i++) {
+        let a = (i + rand(-0.3, 0.3)) / n * TAU, x = x0, y = y0;
+        const len = R * rand(0.5, 1), pts = [];
+        for (let k = 0; k < steps; k++) {
+          const p = stages[Math.floor(k / 3)];
+          p.moveTo(x, y);
+          a += rand(-0.14, 0.14);
+          x += Math.cos(a) * len / steps; y += Math.sin(a) * len / steps;
+          p.lineTo(x, y); pts.push([x, y]);
+          if (k > 1 && Math.random() < 0.12) {   // side splinter
+            const b = a + rand(0.4, 0.9) * (Math.random() < 0.5 ? -1 : 1), l = len * rand(0.06, 0.16);
+            p.lineTo(x + Math.cos(b) * l, y + Math.sin(b) * l);
+          }
+        }
+        rays.push(pts);
+      }
+      for (const k of [1, 4, 7]) for (let i = 0; i < n; i++) {   // rings joining neighbouring rays
+        if (Math.random() < 0.45) continue;
+        const a = rays[i][k], b = rays[(i + 1) % n][k], p = stages[Math.floor(k / 3)];
+        p.moveTo(a[0], a[1]); p.lineTo(b[0], b[1]);
+      }
+      if (fx.cracks.length >= 3) fx.cracks.shift();
+      fx.cracks.push({ stages, shown: 1, x: x0, y: y0, r: R });
+    }
 
     function update(dt) {
       clock += dt;
@@ -1115,12 +1671,13 @@
       const ctl = {
         saccade: true, range: 0.7, sMin: 0.5, sMax: 2.8, biasX: 0, biasY: 0,
         blink: true, bMin: 2, bMax: 6.5, bDur: 0.16,
-        rotSpeed: 0.04, speeds: {}, glitch: 0, bleeding: false
+        rotSpeed: 0.04, speeds: {}, glitch: 0, bleeding: false,
+        critter: null, cracked: false, glyph: null, glyphScale: 1, hudLock: 0
       };
       act.anim.fn({
         t: act.time, p: clamp(act.time / act.dur, 0, 1), dt, dur: act.dur,
         tgt, ctl, st: act.st, fx, base: { hue: c.hue, slit: T.slit, pupil: T.pupil },
-        blink: doBlink, flash
+        blink: doBlink, flash, crack: addCrack, view: { hw: W / 2 / Rw, hh: H / 2 / Rw }
       });
 
       if (ctl.saccade) {
@@ -1158,6 +1715,15 @@
         fx.dripAlpha -= dt * 0.7;
         if (fx.dripAlpha <= 0) { fx.drips.length = 0; fx.dripAlpha = 0; }
       }
+      if (ctl.cracked) fx.crackAlpha = 1;
+      else if (fx.cracks.length) {
+        fx.crackAlpha -= dt * 0.8;
+        if (fx.crackAlpha <= 0) { fx.cracks.length = 0; fx.crackAlpha = 0; }
+      }
+      fx.critter = ctl.critter;
+      if (ctl.glyph) { fx.glyph = ctl.glyph; fx.glyphScale = ctl.glyphScale; }   // keeps the last one while it fades out
+      fx.hudLock = lerp(fx.hudLock, ctl.hudLock, 1 - Math.exp(-10 * dt));
+      fx.hudAng += dt * 1.6 * (1 - fx.hudLock);
     }
 
     // ----- drawing -----
@@ -1207,7 +1773,9 @@
         yellow: ['#e9e2b6', '#d4c78f', '#a39258', '#4f4024'],
         iris: [`hsl(${h},${s * 0.7}%,20%)`, `hsl(${h},${s * 0.7}%,13%)`, `hsl(${h},${s * 0.6}%,7%)`, '#000'],
         metal: ['#b9c0c7', '#6b727a', '#2c3136', '#0c0e10'],
-        animal: ['#8f7253', '#6b4f36', '#3a291b', '#110a05']
+        animal: ['#8f7253', '#6b4f36', '#3a291b', '#110a05'],
+        candle: ['#fffbd0', '#ffe066', '#ff9a1a', '#7a2c00'],
+        void: ['#161c2e', '#0a0d18', '#04050a', '#000']
       }[T.sclera];
       [0, 0.45, 0.78, 1].forEach((o, i) => g.addColorStop(o, stops[i]));
       ctx.fillStyle = g; ctx.fillRect(...box);
@@ -1222,6 +1790,10 @@
           pg.addColorStop(0, 'rgba(215,120,115,.45)'); pg.addColorStop(1, 'rgba(215,120,115,0)');
           ctx.fillStyle = pg; ctx.fillRect(...box);
         }
+      }
+      if (T.sclera === 'candle') {   // the flame inside gutters
+        ctx.fillStyle = `rgba(90,25,0,${Math.max(0, 0.14 + 0.1 * Math.sin(clock * 9.1) + 0.06 * Math.sin(clock * 23.7))})`;
+        ctx.fillRect(...box);
       }
       if (T.sclera === 'metal') {
         ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = Rw * 0.006;
@@ -1264,6 +1836,10 @@
         irisGradient(Ri, [[0, `hsl(${hi},${s * 0.9}%,30%)`], [0.2, `hsl(${hi},${s}%,40%)`], [0.4, `hsl(${h},${s}%,47%)`], [0.75, `hsl(${h - 4},${s * 0.95}%,39%)`], [0.92, `hsl(${h - 8},${s * 0.85}%,22%)`], [1, `hsl(${h},${s * 0.6}%,7%)`]]);
       } else if (style === 'aperture') {
         irisGradient(Ri, [[0, '#1a1c1f'], [0.5, '#4d535a'], [0.7, '#2b2f34'], [0.86, '#5c636b'], [1, '#0b0c0e']]);
+      } else if (style === 'orb') {
+        irisGradient(Ri, [[0, `hsl(${h},${s}%,28%)`], [0.45, `hsl(${h},${s}%,14%)`], [0.85, `hsl(${h},${s * 0.8}%,5%)`], [1, '#000']]);
+      } else if (style === 'galaxy') {
+        irisGradient(Ri, [[0, `hsl(${h + 50},${s}%,78%)`], [0.2, `hsl(${h + 25},${s}%,48%)`], [0.55, `hsl(${h},${s}%,22%)`], [0.88, `hsl(${h - 25},${s}%,9%)`], [1, '#000']]);
       }
 
       ctx.save();
@@ -1289,6 +1865,10 @@
         ctx.globalAlpha = 0.25 + 0.15 * Math.sin(clock * 7) + 0.1 * Math.sin(clock * 13.3);
         ctx.drawImage(getTex('fibers'), -Ri * 1.05, -Ri * 1.05, Ri * 2.1, Ri * 2.1);
         ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      } else if (style === 'galaxy') {
+        ctx.rotate(clock * 0.06);
+        ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(getTex('galaxy'), -Ri, -Ri, Ri * 2, Ri * 2);
+        ctx.globalCompositeOperation = 'source-over';
       } else if (style === 'aperture') {
         ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = Ri * 0.012;
         for (const r of [0.52, 0.74, 0.8, 0.93]) { ctx.beginPath(); ctx.arc(0, 0, Ri * r, 0, TAU); ctx.stroke(); }
@@ -1357,7 +1937,8 @@
         return;
       }
       if (T.pupilShape === 'hbar') {   // goat / octopus: rounded horizontal bar
-        const rx = Math.min(r * 1.6, Ri * 0.92), ry = Math.max(Ri * 0.012, r * 0.36 * (1 - 0.75 * sl)), cr = ry * 0.95;
+        const gl = clamp(cur.glyph, 0, 1);   // rounds off to make room for a glyph
+        const rx = lerp(Math.min(r * 1.6, Ri * 0.92), r, gl), ry = lerp(Math.max(Ri * 0.012, r * 0.36 * (1 - 0.75 * sl)), r, gl), cr = ry * 0.95;
         ctx.beginPath();
         ctx.moveTo(x - rx + cr, y - ry); ctx.lineTo(x + rx - cr, y - ry);
         ctx.quadraticCurveTo(x + rx, y - ry, x + rx, y); ctx.quadraticCurveTo(x + rx, y + ry, x + rx - cr, y + ry);
@@ -1385,6 +1966,7 @@
       const mag = Math.min(1, Math.hypot(cur.lookX, cur.lookY * 1.4));
       const squash = 1 - 0.2 * mag * (T.sclera === 'iris' ? 0.4 : 1), ang = Math.atan2(cur.lookY, cur.lookX);
       const h = cur.hue, s = clamp(cur.sat, 0, 100);
+      irisX = ix; irisY = iy;
 
       ctx.save();
       ctx.translate(ix, iy); ctx.rotate(ang); ctx.scale(squash, 1); ctx.rotate(-ang);
@@ -1412,6 +1994,7 @@
           drawOnePupil(Math.cos(a) * orb, Math.sin(a) * orb, pr * 0.42 * m, sl, Ri, h);
         }
       }
+      if (cur.glyph > 0.02) drawGlyph(fx.glyph, pr * 0.92 * fx.glyphScale, clamp(cur.glyph, 0, 1));
       if (T.iris === 'cloudy') {   // milky cataract haze
         const hz = ctx.createRadialGradient(0, 0, 0, 0, 0, Ri);
         hz.addColorStop(0, 'rgba(235,240,232,.55)'); hz.addColorStop(0.6, 'rgba(225,232,222,.42)'); hz.addColorStop(1, 'rgba(200,210,198,.18)');
@@ -1447,6 +2030,114 @@
         ctx.fillStyle = 'rgba(255,255,255,.5)';
         ctx.beginPath(); ctx.ellipse(ix + Ri * 0.32, iy + Ri * 0.28, Ri * 0.05 / sc, Ri * 0.035 / sc, -0.5, 0, TAU); ctx.fill();
       }
+    }
+
+    // a little picture inside the pupil (drawn in iris space, centred on the pupil)
+    function drawGlyph(kind, R, al) {
+      ctx.globalAlpha = al;
+      if (kind === 'pumpkin') {
+        const fl = 0.85 + 0.1 * Math.sin(clock * 11) + 0.05 * Math.sin(clock * 27.3);   // candle flicker
+        const gl = ctx.createRadialGradient(0, R * 0.1, 0, 0, 0, R * 1.08);
+        gl.addColorStop(0, `rgba(255,160,30,${0.5 * fl})`); gl.addColorStop(1, 'rgba(255,90,0,0)');
+        ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(0, 0, R * 1.08, 0, TAU); ctx.fill();
+        const fg = ctx.createLinearGradient(0, -R * 0.6, 0, R * 0.7);
+        fg.addColorStop(0, `hsl(50,100%,${64 * fl}%)`); fg.addColorStop(1, `hsl(28,100%,${50 * fl}%)`);
+        ctx.fillStyle = fg; ctx.beginPath();
+        for (const sd of [-1, 1]) {
+          ctx.moveTo(sd * R * 0.16, -R * 0.14); ctx.lineTo(sd * R * 0.62, -R * 0.5); ctx.lineTo(sd * R * 0.6, -R * 0.1); ctx.closePath();
+        }
+        ctx.moveTo(0, -R * 0.08); ctx.lineTo(R * 0.11, R * 0.12); ctx.lineTo(-R * 0.11, R * 0.12); ctx.closePath();
+        [[-0.68, 0.2], [-0.42, 0.34], [-0.3, 0.22], [-0.14, 0.4], [0, 0.28], [0.14, 0.4], [0.3, 0.22], [0.42, 0.34], [0.68, 0.2],
+          [0.5, 0.56], [0.3, 0.66], [0.2, 0.54], [0.06, 0.72], [-0.06, 0.72], [-0.2, 0.54], [-0.3, 0.66], [-0.5, 0.56]]
+          .forEach(([x, y], i) => (i ? ctx.lineTo(x * R, y * R) : ctx.moveTo(x * R, y * R)));
+        ctx.closePath(); ctx.fill();
+      } else {   // skull
+        const bg = ctx.createRadialGradient(-R * 0.2, -R * 0.35, 0, 0, 0, R * 0.9);
+        bg.addColorStop(0, '#f1eedb'); bg.addColorStop(1, '#8f8a74');
+        ctx.fillStyle = bg;
+        ctx.beginPath(); ctx.arc(0, -R * 0.14, R * 0.58, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-R * 0.37, R * 0.15); ctx.lineTo(R * 0.37, R * 0.15); ctx.lineTo(R * 0.29, R * 0.7); ctx.lineTo(-R * 0.29, R * 0.7); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#050003';
+        for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(sd * R * 0.25, -R * 0.12, R * 0.17, R * 0.2, sd * 0.25, 0, TAU); ctx.fill(); }
+        ctx.beginPath(); ctx.moveTo(0, R * 0.08); ctx.lineTo(R * 0.08, R * 0.29); ctx.lineTo(-R * 0.08, R * 0.29); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = '#050003'; ctx.lineWidth = R * 0.035; ctx.beginPath();
+        ctx.moveTo(-R * 0.3, R * 0.51); ctx.lineTo(R * 0.3, R * 0.51);
+        for (let i = -2; i <= 2; i++) { ctx.moveTo(i * R * 0.11, R * 0.4); ctx.lineTo(i * R * 0.11, R * 0.63); }
+        ctx.stroke();
+        ctx.fillStyle = `hsla(0,100%,55%,${0.6 + 0.3 * Math.sin(clock * 5)})`;   // embers in the sockets
+        for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * R * 0.25, -R * 0.1, R * 0.045, 0, TAU); ctx.fill(); }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // props in front of the eye
+    function drawCritter(c) {
+      const x = cx + c.x * Rw, y = cy + c.y * Rw;
+      ctx.save();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      if (c.kind === 'spider') {
+        const r = Rw * 0.06;
+        ctx.strokeStyle = 'rgba(235,235,225,.55)'; ctx.lineWidth = Math.max(1, Rw * 0.003);
+        ctx.beginPath(); ctx.moveTo(cx + c.tx * Rw, cy - H); ctx.lineTo(x, y - r); ctx.stroke();   // silk
+        ctx.translate(x, y);
+        for (let pass = 0; pass < 2; pass++) {       // legs: a pale outline first so they show on dark skins
+          ctx.strokeStyle = pass ? '#0b0806' : 'rgba(235,225,205,.4)'; ctx.lineWidth = r * (pass ? 0.17 : 0.3);
+          ctx.beginPath();
+          for (let i = 0; i < 8; i++) {
+            const sd = i < 4 ? -1 : 1, th = [-1.15, -0.5, 0.15, 0.8][i % 4] + 0.12 * Math.sin(clock * (c.walk ? 16 : 3) + i * 1.9);
+            ctx.moveTo(sd * r * 0.3, -r * 0.5);
+            ctx.lineTo(sd * Math.cos(th - 0.35) * r * 1.5, Math.sin(th - 0.35) * r * 1.5 - r * 0.5);
+            ctx.lineTo(sd * Math.cos(th + 0.25) * r * 2.7, Math.sin(th + 0.25) * r * 2.7 - r * 0.5);
+          }
+          ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(235,225,205,.35)'; ctx.lineWidth = r * 0.08;
+        const ag = ctx.createRadialGradient(-r * 0.3, r * 0.05, r * 0.05, 0, r * 0.4, r * 0.95);
+        ag.addColorStop(0, '#5a4c40'); ag.addColorStop(0.5, '#15100c'); ag.addColorStop(1, '#000');
+        ctx.fillStyle = ag; ctx.beginPath(); ctx.ellipse(0, r * 0.4, r * 0.8, r * 0.95, 0, 0, TAU); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#120d0a'; ctx.beginPath(); ctx.arc(0, -r * 0.62, r * 0.45, 0, TAU); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = 'hsl(355,90%,45%)';          // hourglass
+        ctx.beginPath(); ctx.moveTo(-r * 0.2, r * 0.15); ctx.lineTo(r * 0.2, r * 0.15); ctx.lineTo(-r * 0.2, r * 0.75); ctx.lineTo(r * 0.2, r * 0.75); ctx.closePath(); ctx.fill();
+      } else {   // fly, heading along +x
+        const r = Rw * 0.035;
+        ctx.translate(x, y); ctx.rotate(c.ang || 0);
+        ctx.fillStyle = 'rgba(225,238,255,.5)'; ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = r * 0.06;
+        for (const sd of [-1, 1]) {
+          ctx.save(); ctx.rotate(sd * (c.flap ? 1.7 + 0.6 * Math.sin(clock * 75) : 2.65));
+          ctx.beginPath(); ctx.ellipse(r * 1.15, 0, r * 1.15, r * 0.45, 0, 0, TAU); ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+        ctx.strokeStyle = 'rgba(235,235,225,.35)'; ctx.lineWidth = r * 0.1;
+        const bg = ctx.createRadialGradient(-r * 0.7, -r * 0.2, 0, -r * 0.5, 0, r * 0.9);
+        bg.addColorStop(0, '#3d5a4c'); bg.addColorStop(0.6, '#10140f'); bg.addColorStop(1, '#000');
+        ctx.fillStyle = bg; ctx.beginPath(); ctx.ellipse(-r * 0.55, 0, r * 0.85, r * 0.55, 0, 0, TAU); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#0c0d0a'; ctx.beginPath(); ctx.arc(r * 0.2, 0, r * 0.5, 0, TAU); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#6a1210'; ctx.beginPath(); ctx.arc(r * 0.8, 0, r * 0.36, 0, TAU); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // targeting overlay around the iris
+    function drawHud() {
+      const lk = clamp(fx.hudLock, 0, 1), al = clamp(cur.hud, 0, 1);
+      const r = Rw * T.irisSize * lerp(1.9, 1.22, lk), col = lk > 0.5 ? '255,45,30' : '90,255,120';
+      ctx.save();
+      ctx.fillStyle = `rgba(${col},${al * 0.3})`;                  // crosshair lines across the whole view
+      ctx.fillRect(irisX - Rw * 0.003, cy - H, Rw * 0.006, H * 2); ctx.fillRect(cx - W, irisY - Rw * 0.003, W * 2, Rw * 0.006);
+      ctx.strokeStyle = ctx.fillStyle = `rgba(${col},${al * 0.9})`; ctx.lineWidth = Math.max(1.5, Rw * 0.009); ctx.lineCap = 'butt';
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a0 = fx.hudAng + i * TAU / 4 + 0.3, a1 = i * TAU / 4;
+        ctx.moveTo(irisX + Math.cos(a0) * r, irisY + Math.sin(a0) * r); ctx.arc(irisX, irisY, r, a0, a0 + TAU / 4 - 0.6);
+        ctx.moveTo(irisX + Math.cos(a1) * r * 1.08, irisY + Math.sin(a1) * r * 1.08); ctx.lineTo(irisX + Math.cos(a1) * r * 1.35, irisY + Math.sin(a1) * r * 1.35);
+      }
+      ctx.stroke();
+      if (lk < 0.5 || Math.sin(clock * 12) > -0.3) {
+        ctx.font = `700 ${Math.round(Rw * 0.075)}px ui-monospace, Menlo, Consolas, monospace`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(lk > 0.5 ? 'TARGET ACQUIRED' : 'SCANNING', cx, Math.min(cy + H0 * 1.75, H * 0.93));
+      }
+      ctx.restore();
     }
 
     function drawLashes(topPk, botPk, k) {
@@ -1502,11 +2193,14 @@
       ctx.globalAlpha = T.lidAlpha;
       let g = ctx.createLinearGradient(0, cy - creasePk, 0, cy - Math.max(topPk, 0));
       g.addColorStop(0, `hsl(${sk},${S}%,${L * 0.45}%)`); g.addColorStop(1, `hsl(${sk},${S}%,${L * 1.05}%)`);
-      ctx.beginPath();
-      lidCurve(Rw * 1.08, creaseY, creasePk / 0.75, k * 1.05, true);
-      ctx.lineTo(cx + Rw, cy);
-      ctx.bezierCurveTo(cx + k, cy - topPk / 0.75, cx - k, cy - topPk / 0.75, cx - Rw, cy);
-      ctx.closePath();
+      const upperLid = () => {
+        ctx.beginPath();
+        lidCurve(Rw * 1.08, creaseY, creasePk / 0.75, k * 1.05, true);
+        ctx.lineTo(cx + Rw, cy);
+        ctx.bezierCurveTo(cx + k, cy - topPk / 0.75, cx - k, cy - topPk / 0.75, cx - Rw, cy);
+        ctx.closePath();
+      };
+      upperLid();
       ctx.fillStyle = g; ctx.fill();
       // lower lid
       const bagPk = botPk + H0 * 0.35, bagY = cy + H0 * 0.05;
@@ -1531,6 +2225,13 @@
         g = ctx.createRadialGradient(cx - Rw * 0.35, cy - H0 * 0.5, 0, cx - Rw * 0.35, cy - H0 * 0.5, Rw * 0.6);
         g.addColorStop(0, 'rgba(255,255,255,.14)'); g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = g; ctx.fillRect(cx - Rw, cy - Rw, Rw * 2, Rw * 2);
+
+        if (cur.nict > 0.01) {   // third eyelid: a milky membrane sliding in from the inner corner
+          const xl = cx - Rw * 1.05 + Rw * 2.25 * clamp(cur.nict, 0, 1);
+          g = ctx.createLinearGradient(xl - Rw * 0.7, 0, xl, 0);
+          g.addColorStop(0, 'rgba(196,208,186,.62)'); g.addColorStop(0.85, 'rgba(226,232,210,.74)'); g.addColorStop(1, 'rgba(150,120,100,.8)');
+          ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(xl - Rw * 2.4, cy, Rw * 2.4, Rw * 1.5, 0, 0, TAU); ctx.fill();
+        }
 
         // inner lid shadow
         openingPath(topPk, botPk);
@@ -1558,6 +2259,17 @@
       ctx.strokeStyle = fade(T.crease * 0.7); ctx.lineWidth = Rw * 0.01;
       ctx.beginPath(); lidCurve(Rw * 1.05, bagY, bagPk / 0.75, k, false); ctx.stroke();
 
+      if (cur.rem > 0.02) {   // the eyeball bulging under a closed lid
+        const r = Rw * T.irisSize * 1.05, bx = cx + cur.lookX * Rw * 0.4 * T.lookScale, by = cy - H0 * 0.38 + cur.lookY * H0 * 0.3;
+        const al = clamp(cur.rem, 0, 1);
+        ctx.save(); upperLid(); ctx.clip();
+        g = ctx.createRadialGradient(bx - r * 0.2, by - r * 0.25, 0, bx, by, r);
+        g.addColorStop(0, `rgba(255,255,255,${0.22 * al})`); g.addColorStop(0.55, 'rgba(255,255,255,0)');
+        g.addColorStop(0.8, `rgba(0,0,0,${0.24 * al})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(bx - r, by - r, r * 2, r * 2);
+        ctx.restore();
+      }
+
       drawLashes(topPk, botPk, k);
 
       // blood drips from the lower lid
@@ -1581,9 +2293,29 @@
         ctx.globalAlpha = 1;
       }
 
+      if (fx.critter) drawCritter(fx.critter);
+      if (cur.hud > 0.02) drawHud();
+
       // ---- screen-space overlays ----
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       if (cur.dim > 0.01) { ctx.fillStyle = `rgba(0,0,8,${clamp(cur.dim, 0, 1)})`; ctx.fillRect(0, 0, W, H); }
+      if (fx.cracks.length && fx.crackAlpha > 0) {   // the glass doesn't move with the eye
+        ctx.globalAlpha = clamp(fx.crackAlpha, 0, 1);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        const lw = Math.max(1, Rw * 0.004);
+        for (const c of fx.cracks) {
+          const fr = c.r * 0.1 * c.shown, fg = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, fr);
+          fg.addColorStop(0, 'rgba(255,255,255,.35)'); fg.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = fg; ctx.fillRect(c.x - fr, c.y - fr, fr * 2, fr * 2);
+          for (let i = 0; i < c.shown; i++) {
+            ctx.setTransform(1, 0, 0, 1, lw, lw);
+            ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = lw * 2.5; ctx.stroke(c.stages[i]);
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.strokeStyle = 'rgba(240,248,255,.85)'; ctx.lineWidth = lw * (1.5 - i * 0.3); ctx.stroke(c.stages[i]);
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
       if (fx.flashA > 0) { ctx.fillStyle = `rgba(${fx.flashColor},${fx.flashA * 0.85})`; ctx.fillRect(0, 0, W, H); }
       if (fx.glitch > 0) {
         const n = Math.floor(3 + fx.glitch * 10);
