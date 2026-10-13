@@ -590,21 +590,22 @@
       }
     },
     {
-      id: 'lake', name: 'Lake Pride', dur: 14,
-      desc: 'For the neighborhood: the pupil reshapes into a shield, green, white and red pour in, and it becomes the crest of The Lake.',
+      id: 'lake', name: 'Lake Pride', dur: 18,
+      desc: 'For the neighborhood: the pupil reshapes into a shield, green, white and red pour in, and it becomes the crest of The Lake, which then swells to fill the whole window.',
       fn(a) {
         const { tgt, ctl, st } = a, p = a.p;
-        if (p < 0.06 || p > 0.93) return;                      // a glance around before and after
+        if (p < 0.047 || p > 0.93) return;                     // a glance around before and after
         ctl.saccade = false; ctl.blink = false;
-        const on = p < 0.87;
+        const on = p < 0.86, done = p > 0.467;
         tgt.lookX = 0.1 * Math.sin(a.t * 0.8); tgt.lookY = 0.02; ctl.speeds.look = 4;
         ctl.glyph = 'lake'; tgt.glyph = on ? 1 : 0; ctl.speeds.glyph = on ? 2.2 : 12;
-        ctl.glyphT = smooth(0.2, 0.46, p) + smooth(0.48, 0.6, p);   // 0-1 the colors pour in, 1-2 the name
+        ctl.glyphT = smooth(0.156, 0.356, p) + smooth(0.372, 0.467, p);   // 0-1 the colors pour in, 1-2 the name
+        tgt.grow = smooth(0.605, 0.655, p) * (1 - smooth(0.775, 0.825, p)); ctl.speeds.grow = 14;   // lifts out of the eye, fills the window, sinks back
         tgt.pupil = on ? 0.42 : a.base.pupil; tgt.slit = on ? 0 : a.base.slit; ctl.speeds.slit = 6;
-        tgt.scale = on ? 1 + 0.14 * smooth(0.08, 0.3, p) : 1; ctl.speeds.scale = 3;
-        tgt.lid = 1.12; tgt.lidBot = on && p > 0.6 ? 0.88 : 1;       // a proud little smile once it's finished
-        if (on && p > 0.6) {                                       // the iris glows through the flag colors
-          const k = Math.floor((a.t - 0.6 * a.dur) / 1.25) % 3;
+        tgt.scale = on ? 1 + 0.14 * smooth(0.062, 0.233, p) : 1; ctl.speeds.scale = 3;
+        tgt.lid = 1.12; tgt.lidBot = on && done ? 0.88 : 1;         // a proud little smile once it's finished
+        if (on && done) {                                          // the iris glows through the flag colors
+          const k = Math.floor(a.t - 0.467 * a.dur) % 3;
           tgt.hue = [135, a.base.hue, 356][k]; tgt.sat = k === 1 ? 0 : 100; ctl.speeds.hue = 8; ctl.speeds.sat = 8; tgt.glow = 0.9;
         }
         if (!on && !st.b) { st.b = 1; a.blink(0.45); }
@@ -844,13 +845,13 @@
       lookX: 0, lookY: 0, pupil: 0.38, slit: 0, hue: 95, sat: 90,
       lid: 1, lidTop: 1, lidBot: 1, blood: 0, shake: 0, scale: 1,
       spiral: 0, multi: 0, glow: 0.25, dim: 0,
-      nict: 0, glyph: 0, rem: 0, hud: 0
+      nict: 0, glyph: 0, rem: 0, hud: 0, grow: 0
     };
     const SPEEDS = {
       lookX: 14, lookY: 14, pupil: 4, slit: 3, hue: 2.5, sat: 3,
       lid: 8, lidTop: 8, lidBot: 8, blood: 2.5, shake: 6, scale: 6,
       spiral: 2.5, multi: 3, glow: 3, dim: 3,
-      nict: 14, glyph: 3, rem: 4, hud: 6
+      nict: 14, glyph: 3, rem: 4, hud: 6, grow: 5
     };
     const cur = Object.assign({}, BASE);
     let rot = 0, clock = 0, lastDraw = 0;
@@ -2112,9 +2113,12 @@
       }
     }
 
-    // "The Lake" crest growing out of the pupil. m: 0 = round pupil, 1 = shield; fx.glyphT paints it in.
-    function drawCrest(pr, m, Ri) {
-      const S = Math.min(Ri * 1.22, H0 * 1.1), e = m * m * (3 - 2 * m), t = fx.glyphT, N = CREST.length;   // as big as the iris and lids allow
+    const crestSize = () => Math.min(Rw * T.irisSize * 1.22, H0 * 1.1);   // as big as the iris and lids allow
+
+    // "The Lake" crest growing out of the pupil, drawn S wide around the origin.
+    // m: 0 = round pupil, 1 = shield; fx.glyphT paints it in; halo adds a pale keyline for dark backgrounds.
+    function drawCrest(pr, m, S, halo) {
+      const e = m * m * (3 - 2 * m), t = fx.glyphT, N = CREST.length;
       const outline = () => {
         ctx.beginPath();
         for (let i = 0; i < N; i++) {
@@ -2151,12 +2155,16 @@
         }
       }
       ctx.restore();
-      if (e > 0.02) { outline(); ctx.lineJoin = 'round'; ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = S * 0.04 * e; ctx.stroke(); }
+      if (e > 0.02) {
+        outline(); ctx.lineJoin = 'round';
+        if (halo > 0.02) { ctx.strokeStyle = `rgba(255,255,255,${0.6 * halo})`; ctx.lineWidth = S * 0.06; ctx.stroke(); }
+        ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = S * 0.04 * e; ctx.stroke();
+      }
     }
 
     // a little picture inside the pupil (drawn in iris space, centred on the pupil)
     function drawGlyph(kind, pr, al, Ri) {
-      if (kind === 'lake') return drawCrest(pr, al, Ri);
+      if (kind === 'lake') return drawCrest(pr, al, crestSize(), 0);
       const R = pr * 0.92 * fx.glyphScale;
       ctx.globalAlpha = al;
       if (kind === 'pumpkin') {
@@ -2423,6 +2431,14 @@
       // ---- screen-space overlays ----
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       if (cur.dim > 0.01) { ctx.fillStyle = `rgba(0,0,8,${clamp(cur.dim, 0, 1)})`; ctx.fillRect(0, 0, W, H); }
+      if (cur.grow > 0.01 && cur.glyph > 0.02 && fx.glyph === 'lake') {   // the crest lifts out of the eye and fills the window
+        const gr = clamp(cur.grow, 0, 1), S0 = crestSize() * sc;
+        const S1 = Math.min(W * 0.9, H * 0.92 / 1.24) * (1 + 0.012 * Math.sin(clock * 3));
+        ctx.fillStyle = `rgba(0,0,8,${0.6 * gr})`; ctx.fillRect(0, 0, W, H);
+        ctx.setTransform(1, 0, 0, 1, lerp(cx + ox + (irisX - cx) * sc, cx, gr), lerp(cy + oy + (irisY - cy) * sc, cy - 0.04 * S1, gr));
+        drawCrest(clamp(cur.pupil, 0.04, 0.95) * Rw * T.irisSize * sc, clamp(cur.glyph, 0, 1), lerp(S0, S1, gr), gr);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
       if (fx.cracks.length && fx.crackAlpha > 0) {   // the glass doesn't move with the eye
         ctx.globalAlpha = clamp(fx.crackAlpha, 0, 1);
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';

@@ -141,7 +141,7 @@ Jack-o'-Lantern, Death's Reflection, Target Lock, Monster Mash, Lake Pride) and 
 Lurking Gaze, Watching You, Pupil Pulse, Nervous Twitch, Sleepy... BOO!, Blood Tears, Fly Chase, Spider Drop, Bad Dream, Unimpressed and Peekaboo.
 
 **Lake Pride** is for the home crowd in Nonantum: the pupil reshapes into a shield, green, white and red pour in,
-and it becomes the crest of The Lake while the iris glows through the flag colors. Uncheck it on the settings page if you display the eye somewhere else.
+and it becomes the crest of The Lake while the iris glows through the flag colors. The crest then lifts out of the eye, fills the window for a couple of seconds and sinks back in. Uncheck it on the settings page if you display the eye somewhere else.
 
 Good crowd-pleasers for trick-or-treaters: Fly Chase, Spider Drop, Peekaboo, Monster Mash and Let Me Out.
 
