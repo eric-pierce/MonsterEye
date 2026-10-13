@@ -93,6 +93,28 @@
     return (shared.hl = c);
   }
 
+  // Outline of "The Lake" crest (Nonantum, Newton MA): a shield one unit wide, as evenly spaced points
+  // running clockwise from the top centre, so it can be morphed point-for-point out of a round pupil.
+  const CREST = (function () {
+    const raw = [[0, -0.58], [0.5, -0.58], [0.5, 0.12]];
+    for (let i = 1; i <= 14; i++) {      // rounded shoulder down to the point
+      const t = i / 14, mt = 1 - t;
+      raw.push([mt * mt * 0.5 + 2 * mt * t * 0.5, mt * mt * 0.12 + 2 * mt * t * 0.56 + t * t * 0.66]);
+    }
+    for (let i = raw.length - 2; i >= 0; i--) raw.push([-raw[i][0], raw[i][1]]);
+    const seg = [], N = 80, out = [];
+    let total = 0;
+    for (let i = 1; i < raw.length; i++) { seg.push(Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1])); total += seg[i - 1]; }
+    for (let k = 0, i = 0, acc = 0; k < N; k++) {
+      const d = k / N * total;
+      while (acc + seg[i] < d) acc += seg[i++];
+      const f = (d - acc) / seg[i];
+      out.push([lerp(raw[i][0], raw[i + 1][0], f), lerp(raw[i][1], raw[i + 1][1], f)]);
+    }
+    return out;
+  })();
+  const CREST_LETTERS = { T: 0.78, H: 0.82, E: 0.62, L: 0.62, A: 0.92, K: 0.84 };   // widths, in letter heights
+
   // ---------- animation library ----------
   // Each animation gets `a` every frame:
   //   a.t (seconds into this act), a.p (0..1 progress), a.dt, a.tgt (target
@@ -566,6 +588,27 @@
           tgt.lookX = 0.35 * Math.sin(k * 10) * Math.exp(-k * 1.2); ctl.speeds.look = 25; tgt.glow = 0.7;
         }
       }
+    },
+    {
+      id: 'lake', name: 'Lake Pride', dur: 14,
+      desc: 'For the neighborhood: the pupil reshapes into a shield, green, white and red pour in, and it becomes the crest of The Lake.',
+      fn(a) {
+        const { tgt, ctl, st } = a, p = a.p;
+        if (p < 0.06 || p > 0.93) return;                      // a glance around before and after
+        ctl.saccade = false; ctl.blink = false;
+        const on = p < 0.87;
+        tgt.lookX = 0.1 * Math.sin(a.t * 0.8); tgt.lookY = 0.02; ctl.speeds.look = 4;
+        ctl.glyph = 'lake'; tgt.glyph = on ? 1 : 0; ctl.speeds.glyph = on ? 2.2 : 12;
+        ctl.glyphT = smooth(0.2, 0.46, p) + smooth(0.48, 0.6, p);   // 0-1 the colors pour in, 1-2 the name
+        tgt.pupil = on ? 0.42 : a.base.pupil; tgt.slit = on ? 0 : a.base.slit; ctl.speeds.slit = 6;
+        tgt.scale = on ? 1 + 0.14 * smooth(0.08, 0.3, p) : 1; ctl.speeds.scale = 3;
+        tgt.lid = 1.12; tgt.lidBot = on && p > 0.6 ? 0.88 : 1;       // a proud little smile once it's finished
+        if (on && p > 0.6) {                                       // the iris glows through the flag colors
+          const k = Math.floor((a.t - 0.6 * a.dur) / 1.25) % 3;
+          tgt.hue = [135, a.base.hue, 356][k]; tgt.sat = k === 1 ? 0 : 100; ctl.speeds.hue = 8; ctl.speeds.sat = 8; tgt.glow = 0.9;
+        }
+        if (!on && !st.b) { st.b = 1; a.blink(0.45); }
+      }
     }
   ];
 
@@ -813,7 +856,7 @@
     let rot = 0, clock = 0, lastDraw = 0;
     const fx = {
       flashA: 0, flashColor: '255,255,255', flashDecay: 4, glitch: 0, drips: [], dripAlpha: 0,
-      cracks: [], crackAlpha: 0, critter: null, glyph: 'pumpkin', glyphScale: 1, hudLock: 0, hudAng: 0
+      cracks: [], crackAlpha: 0, critter: null, glyph: 'pumpkin', glyphScale: 1, glyphT: 0, hudLock: 0, hudAng: 0
     };
     let irisX = 0, irisY = 0;   // where the iris was last drawn, for overlays
     const sac = { next: 0, x: 0, y: 0 };
@@ -1679,7 +1722,7 @@
         saccade: true, range: 0.7, sMin: 0.5, sMax: 2.8, biasX: 0, biasY: 0,
         blink: true, bMin: 2, bMax: 6.5, bDur: 0.16,
         rotSpeed: 0.04, speeds: {}, glitch: 0, bleeding: false,
-        critter: null, cracked: false, glyph: null, glyphScale: 1, hudLock: 0
+        critter: null, cracked: false, glyph: null, glyphScale: 1, glyphT: 0, hudLock: 0
       };
       act.anim.fn({
         t: act.time, p: clamp(act.time / act.dur, 0, 1), dt, dur: act.dur,
@@ -1728,7 +1771,7 @@
         if (fx.crackAlpha <= 0) { fx.cracks.length = 0; fx.crackAlpha = 0; }
       }
       fx.critter = ctl.critter;
-      if (ctl.glyph) { fx.glyph = ctl.glyph; fx.glyphScale = ctl.glyphScale; }   // keeps the last one while it fades out
+      if (ctl.glyph) { fx.glyph = ctl.glyph; fx.glyphScale = ctl.glyphScale; fx.glyphT = ctl.glyphT; }   // keeps the last one while it fades out
       fx.hudLock = lerp(fx.hudLock, ctl.hudLock, 1 - Math.exp(-10 * dt));
       fx.hudAng += dt * 1.6 * (1 - fx.hudLock);
     }
@@ -2001,7 +2044,7 @@
           drawOnePupil(Math.cos(a) * orb, Math.sin(a) * orb, pr * 0.42 * m, sl, Ri, h);
         }
       }
-      if (cur.glyph > 0.02) drawGlyph(fx.glyph, pr * 0.92 * fx.glyphScale, clamp(cur.glyph, 0, 1));
+      if (cur.glyph > 0.02) drawGlyph(fx.glyph, pr, clamp(cur.glyph, 0, 1), Ri);
       if (T.iris === 'cloudy') {   // milky cataract haze
         const hz = ctx.createRadialGradient(0, 0, 0, 0, 0, Ri);
         hz.addColorStop(0, 'rgba(235,240,232,.55)'); hz.addColorStop(0.6, 'rgba(225,232,222,.42)'); hz.addColorStop(1, 'rgba(200,210,198,.18)');
@@ -2039,8 +2082,82 @@
       }
     }
 
+    // heavy Art Deco capitals for the crest: one fat stroke per letter, the rest hairlines
+    function crestWord(word, xc, y, h, width) {
+      const gap = 0.1;
+      let total = -gap;
+      for (const ch of word) total += CREST_LETTERS[ch] + gap;
+      const u = width / total;
+      let x = xc - width / 2;
+      ctx.fillStyle = '#0a0a0a';
+      for (const ch of word) {
+        const w = CREST_LETTERS[ch] * u, tk = Math.min(h * 0.32, w * 0.42), th = h * 0.1;
+        const R = (a, b, c, d) => ctx.fillRect(x + a, y + b, c, d);
+        const P = pts => { ctx.beginPath(); pts.forEach(([a, b], i) => (i ? ctx.lineTo(x + a, y + b) : ctx.moveTo(x + a, y + b))); ctx.closePath(); ctx.fill(); };
+        if (ch === 'T') { R(0, 0, w, th); R((w - tk) / 2, 0, tk, h); }
+        else if (ch === 'H') { R(0, 0, tk, h); R(w - th * 1.3, 0, th * 1.3, h); R(tk, h * 0.45, w - tk, th); }
+        else if (ch === 'E') { R(0, 0, tk, h); R(tk, 0, w - tk, th); R(tk, h * 0.45, (w - tk) * 0.7, th); R(tk, h - th, w - tk, th); }
+        else if (ch === 'L') { R(0, 0, tk, h); R(tk, h - th, w - tk, th); }
+        else if (ch === 'A') {
+          const ax = w * 0.4;
+          P([[ax - th * 0.3, 0], [ax + tk * 0.5, 0], [w, h], [w - tk * 1.1, h]]);
+          P([[ax - th * 0.3, 0], [ax + th, 0], [th * 1.3, h], [0, h]]);
+          R(w * 0.2, h * 0.62, w * 0.5, th);
+        } else if (ch === 'K') {
+          R(0, 0, tk, h);
+          P([[tk, h * 0.56], [w - th * 1.4, 0], [w, 0], [tk, h * 0.72]]);
+          P([[tk + (w - tk) * 0.18, h * 0.5], [tk + (w - tk) * 0.5, h * 0.3], [w, h], [w - tk * 1.05, h]]);
+        }
+        x += w + gap * u;
+      }
+    }
+
+    // "The Lake" crest growing out of the pupil. m: 0 = round pupil, 1 = shield; fx.glyphT paints it in.
+    function drawCrest(pr, m, Ri) {
+      const S = Math.min(Ri * 1.22, H0 * 1.1), e = m * m * (3 - 2 * m), t = fx.glyphT, N = CREST.length;   // as big as the iris and lids allow
+      const outline = () => {
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+          const a = -Math.PI / 2 + i / N * TAU;
+          const x = lerp(Math.cos(a) * pr, CREST[i][0] * S, e), y = lerp(Math.sin(a) * pr, CREST[i][1] * S, e);
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+        ctx.closePath();
+      };
+      outline(); ctx.fillStyle = '#050003'; ctx.fill();
+      ctx.save(); ctx.clip();
+      const top = -0.58 * S, hh = 1.24 * S;
+      ['#12994a', '#ffffff', '#e03a24'].forEach((col, j) => {      // each band pours down from the top in turn
+        const f = smooth(0, 1, clamp(t * 2.2 - j * 0.6, 0, 1));
+        if (f <= 0) return;
+        const x = (-0.5 + j / 3) * S;
+        ctx.fillStyle = col; ctx.fillRect(x - 0.5, top, S / 3 + 1, f * hh);
+        if (f < 1) { ctx.beginPath(); ctx.ellipse(x + S / 6, top + f * hh, S / 6, S * 0.045, 0, 0, Math.PI); ctx.fill(); }   // wet edge
+      });
+      const u = clamp(t - 1, 0, 1);
+      if (u > 0) {                                                 // the white name band wipes across, then the letters
+        const y1 = -0.357 * S, y2 = 0.152 * S, rv = smooth(0.4, 1, u);
+        ctx.fillStyle = '#fff'; ctx.fillRect(-0.5 * S, y1, smooth(0, 0.45, u) * S, y2 - y1);
+        if (rv > 0) {
+          ctx.save(); ctx.beginPath(); ctx.rect(-0.5 * S, y1, S * rv, y2 - y1); ctx.clip();
+          crestWord('THE', 0, -0.33 * S, 0.215 * S, 0.66 * S);
+          crestWord('LAKE', 0, -0.088 * S, 0.215 * S, 0.9 * S);
+          ctx.restore();
+        }
+        if (u >= 1) {                                              // a glint slides across now and then
+          const gx = ((clock * 0.45) % 1.8 - 0.4) * S * 2 - S, gg = ctx.createLinearGradient(gx, 0, gx + S * 0.3, S * 0.12);
+          gg.addColorStop(0, 'rgba(255,255,255,0)'); gg.addColorStop(0.5, 'rgba(255,255,255,.4)'); gg.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = gg; ctx.fillRect(-0.5 * S, top, S, hh);
+        }
+      }
+      ctx.restore();
+      if (e > 0.02) { outline(); ctx.lineJoin = 'round'; ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = S * 0.04 * e; ctx.stroke(); }
+    }
+
     // a little picture inside the pupil (drawn in iris space, centred on the pupil)
-    function drawGlyph(kind, R, al) {
+    function drawGlyph(kind, pr, al, Ri) {
+      if (kind === 'lake') return drawCrest(pr, al, Ri);
+      const R = pr * 0.92 * fx.glyphScale;
       ctx.globalAlpha = al;
       if (kind === 'pumpkin') {
         const fl = 0.85 + 0.1 * Math.sin(clock * 11) + 0.05 * Math.sin(clock * 27.3);   // candle flicker

@@ -1,6 +1,6 @@
 # Monster Eye
 
-A giant animated eye for a Halloween window display. It has 17 eye types (8 realistic, 9 stylized) and 29 animations.
+A giant animated eye for a Halloween window display. It has 17 eye types (8 realistic, 9 stylized) and 30 animations.
 A settings page, on the display computer or your phone, lets you choose the eye and which animations play in the loop.
 
 It runs on any Unix-like system with a desktop: **Raspberry Pi OS, Ubuntu/Debian, Fedora, Arch and other Linux distros, macOS, and FreeBSD/OpenBSD**.
@@ -134,11 +134,14 @@ Lurking Gaze · Watching You · Blink Frenzy · Pupil Pulse · Crazy Spin · Ser
 Bloodshot Rage · Hypnotic Spiral · Color Chaos · Nervous Twitch · Sleepy... BOO! (jump scare) ·
 Glitch Possession · Pupil Swarm · Heartbeat · Possessed Roll-Back · Lightning Storm · Blood Tears ·
 Fly Chase · Spider Drop · Let Me Out (cracks the window) · Jack-o'-Lantern · Death's Reflection · Third Eyelid ·
-Target Lock · Monster Mash · Blood Moon Eclipse · Bad Dream · Unimpressed (eye-roll) · Peekaboo
+Target Lock · Monster Mash · Blood Moon Eclipse · Bad Dream · Unimpressed (eye-roll) · Peekaboo · Lake Pride
 
 For the most convincing realistic eyes, turn off the obviously supernatural animations (Color Chaos, Hypnotic Spiral, Pupil Swarm, Glitch,
-Jack-o'-Lantern, Death's Reflection, Target Lock, Monster Mash) and keep the natural ones:
+Jack-o'-Lantern, Death's Reflection, Target Lock, Monster Mash, Lake Pride) and keep the natural ones:
 Lurking Gaze, Watching You, Pupil Pulse, Nervous Twitch, Sleepy... BOO!, Blood Tears, Fly Chase, Spider Drop, Bad Dream, Unimpressed and Peekaboo.
+
+**Lake Pride** is for the home crowd in Nonantum: the pupil reshapes into a shield, green, white and red pour in,
+and it becomes the crest of The Lake while the iris glows through the flag colors. Uncheck it on the settings page if you display the eye somewhere else.
 
 Good crowd-pleasers for trick-or-treaters: Fly Chase, Spider Drop, Peekaboo, Monster Mash and Let Me Out.
 
