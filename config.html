@@ -25,6 +25,9 @@
   }
   button:hover, .btn:hover { border-color: var(--orange); }
   .btn.primary { background: var(--orange); color: #1a0a00; border-color: var(--orange); font-weight: 600; }
+  button.danger { border-color: #8a2a2a; color: #ffb4b4; }
+  button.danger:hover { border-color: #ff5a5a; }
+  button:disabled { opacity: .5; cursor: default; border-color: var(--line); }
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; padding: 16px; max-width: 1300px; margin: 0 auto; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .preview-col { order: -1; } }
   .preview-col { position: sticky; top: 64px; align-self: start; }
@@ -133,6 +136,12 @@
       <p class="hint">If the eye stutters on slower hardware (like an older Raspberry Pi), lower the render resolution first, then the frame rate.</p>
       <div class="field"><span>Render resolution</span><input type="range" min="0.4" max="1" step="0.05" data-key="renderScale"><output data-for="renderScale"></output></div>
       <div class="field"><span>Max frame rate</span><input type="range" min="15" max="60" step="5" data-key="fpsCap"><output data-for="fpsCap"></output></div>
+    </section>
+
+    <section>
+      <h2>Shut down</h2>
+      <p class="hint">Closes the eye on the display and stops its server, also when it was started automatically at login. To bring it back, run <kbd>./start.sh</kbd> on the display computer, or log in again if autostart is installed.</p>
+      <button id="shutdown" class="danger" type="button">Shut down the eye</button>
     </section>
 
     <footer>
@@ -308,11 +317,31 @@
   }
   async function save() {
     Store.saveLocal(cfg);
+    if (down) return setStatus('The eye is shut down · changes are kept in this browser only', 'warn');
     serverOK = await Store.saveServer(cfg);
     if (serverOK) setStatus('Saved · the eye updates within 2 seconds', 'ok');
     else if (Store.hasServer) setStatus('Saved in this browser only (eye server not reachable)', 'warn');
     else setStatus('Saved in this browser only (open via server.py to control the eye from your phone)', 'warn');
   }
+
+  // ---- shutdown ----
+  let down = false;
+  const shutBtn = $('#shutdown');
+  if (!Store.hasServer) { shutBtn.disabled = true; shutBtn.title = 'Only available when this page is opened through the eye server'; }
+  shutBtn.onclick = async () => {
+    if (!confirm('Shut down the eye?\n\nThe display closes and this settings page stops working until the eye is started again on the display computer.')) return;
+    shutBtn.disabled = true;
+    clearTimeout(saveTimer);
+    await save();   // don't lose a change made a moment ago
+    if (await Store.shutdown()) {
+      down = true;
+      shutBtn.textContent = 'The eye is shut down';
+      setStatus('The eye is shut down', 'warn');
+    } else {
+      shutBtn.disabled = false;
+      setStatus('Could not reach the eye server to shut it down', 'warn');
+    }
+  };
 
   Store.load().then(({ cfg: c, source }) => {
     cfg = c;

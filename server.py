@@ -21,6 +21,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
+STOP_PATH = os.path.join(HERE, ".shutdown")   # left behind on a requested shutdown; start.sh closes the browser when it appears
 LOCK = threading.Lock()
 PORT = 8000
 
@@ -79,8 +80,25 @@ class Handler(SimpleHTTPRequestHandler):
             return
         return super().do_GET()
 
+    def _shutdown(self):
+        # Browsers only send a custom header to another site after a preflight request, which this
+        # server never answers, so a web page elsewhere can't switch the eye off.
+        if self.headers.get("X-Monster-Eye") != "shutdown":
+            return self._json(403, {"error": "forbidden"})
+        self._json(200, {"ok": True})
+        try:
+            with open(STOP_PATH, "w") as f:
+                f.write("requested from the settings page\n")
+        except OSError:
+            pass
+        print("Shut down from the settings page.", flush=True)
+        threading.Timer(0.3, self.server.shutdown).start()   # after the reply has gone out
+
     def do_POST(self):
-        if self.path.split("?", 1)[0] != "/api/config":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/shutdown":
+            return self._shutdown()
+        if path != "/api/config":
             return self._json(404, {"error": "not found"})
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > 200_000:
@@ -112,6 +130,10 @@ def main():
         if e.errno in (errno.EADDRINUSE, 48, 98):
             sys.exit(f"Port {args.port} is already in use. Try: python3 server.py --port {args.port + 1}")
         raise
+    try:
+        os.remove(STOP_PATH)   # stale marker from the last shutdown
+    except OSError:
+        pass
     print(f"Monster Eye running at http://localhost:{args.port}/")
     for u in lan_urls(args.port):
         print(f"  Settings from your phone: {u}/config.html")

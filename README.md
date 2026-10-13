@@ -31,6 +31,7 @@ chmod +x start.sh install-autostart.sh
 
 The terminal prints the address for your phone, for example `http://192.168.1.50:8000/config.html`.
 To quit full screen, close the browser (**Alt+F4** on Linux, **Cmd+Q** on macOS). The server stops with it.
+With no keyboard on the display, press **Shut down the eye** at the bottom of the settings page instead.
 
 ### Launcher options
 
@@ -54,6 +55,10 @@ No launcher at all? Run `python3 server.py` and open `http://localhost:8000/` in
 
 - **Linux/BSD** (GNOME, KDE, XFCE, Cinnamon, MATE, LXDE/LXQt, Raspberry Pi OS): adds a standard desktop autostart entry.
 - **macOS:** adds a LaunchAgent that opens the eye each time you log in.
+
+Autostart only launches the eye at login; nothing restarts it afterwards. So **Shut down the eye** on the settings page
+also works on an autostarted eye, and it stays off until the next login or reboot (or until you run `./start.sh`).
+To stop it coming back at all, run `./install-autostart.sh --remove`.
 
 For an unattended display, also turn on automatic login and stop the screen from blanking:
 
@@ -87,6 +92,8 @@ Changes save automatically, and the eye picks them up within about 2 seconds.
 - **Animation loop:** check or uncheck animations, set how many seconds each runs, and press **Play** to trigger one right away.
 - **Playback:** shuffle or in-order, blink between animations.
 - **Look:** iris color (with presets), saturation, skin tint, eye size, veins, lashes.
+- **Shut down:** closes the eye's browser on the display and stops the server. The settings page goes offline with it,
+  so starting again has to happen at the display computer. If you started only `python3 server.py` yourself, it stops the server and leaves your browser open.
 - **Performance:** if animation stutters (older Pis or very old laptops), lower **Render resolution** to 60–70%, then lower the frame rate cap.
 
 ## Eye types

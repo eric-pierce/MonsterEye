@@ -771,6 +771,13 @@
         return r.ok;
       } catch (e) { return false; }
     },
+    async shutdown() {   // stops the server; start.sh then closes the eye's browser too
+      if (!this.hasServer) return false;
+      try {
+        const r = await fetch('api/shutdown', { method: 'POST', headers: { 'X-Monster-Eye': 'shutdown' } });
+        return r.ok;
+      } catch (e) { return false; }
+    },
     async load() {
       const s = await this.fetchServer();
       if (s) return { cfg: mergeConfig(s), source: 'server' };

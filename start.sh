@@ -14,6 +14,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${PORT:-8000}"
 MODE="kiosk"
 PIDFILE="$DIR/.server.pid"
+STOPFILE="$DIR/.shutdown"   # server.py leaves this when "Shut down" is pressed on the settings page
 OS="$(uname -s)"
 
 while [ $# -gt 0 ]; do
@@ -99,6 +100,7 @@ if [ "$MODE" = "none" ]; then
   say "Open $URL (or the address above) in any browser. Press Ctrl+C to stop."
   trap 'stop_server; exit 0' INT TERM
   wait
+  rm -f "$PIDFILE"   # the server stopped by itself: shut down from the settings page
   exit 0
 fi
 
@@ -183,9 +185,32 @@ case "$OS" in
     ;;
 esac
 
-cleanup() { [ "$STARTED_SERVER" = 1 ] && stop_server >/dev/null; }
+# The process we launch may only be a wrapper (systemd-inhibit, flatpak), so signal what it started too.
+kill_tree() {
+  local kids k
+  kids="$(pgrep -P "$2" 2>/dev/null)"
+  kill "-$1" "$2" 2>/dev/null
+  for k in $kids; do kill_tree "$1" "$k"; done
+}
+BROWSER_PID=""
+close_browser() {
+  [ -n "$BROWSER_PID" ] || return 0
+  kill -0 "$BROWSER_PID" 2>/dev/null || return 0
+  kill_tree TERM "$BROWSER_PID"
+  local i=0
+  while [ $i -lt 10 ]; do
+    kill -0 "$BROWSER_PID" 2>/dev/null || return 0
+    sleep 0.5; i=$((i + 1))
+  done
+  kill_tree KILL "$BROWSER_PID"
+}
+
+cleanup() { close_browser; [ "$STARTED_SERVER" = 1 ] && stop_server >/dev/null; }
 trap cleanup EXIT
 trap 'exit 0' INT TERM
 
-say "Opening the eye in ${BROWSER_CMD[*]##*/} ($MODE). Close the browser (Alt+F4 / Cmd+Q) to stop."
-"${WRAP[@]+"${WRAP[@]}"}" "${BROWSER_CMD[@]}" "${ARGS[@]}"
+say "Opening the eye in ${BROWSER_CMD[*]##*/} ($MODE). Close the browser (Alt+F4 / Cmd+Q) or press Shut down on the settings page to stop."
+"${WRAP[@]+"${WRAP[@]}"}" "${BROWSER_CMD[@]}" "${ARGS[@]}" &
+BROWSER_PID=$!
+# Run until the browser is closed, or until the settings page asks for a shutdown.
+while kill -0 "$BROWSER_PID" 2>/dev/null && [ ! -e "$STOPFILE" ]; do sleep 1; done
